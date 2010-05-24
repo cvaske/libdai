@@ -54,29 +54,27 @@ CondProbEstimation::CondProbEstimation( size_t target_dimension, const Prob &pse
 }
 
 
-void CondProbEstimation::addSufficientStatistics( const Prob &p ) {
-    _stats += p;
-}
-
-
-Prob CondProbEstimation::estimate() {
+Prob CondProbEstimation::estimate(const Prob& p) {
+    Prob stats = p + _initial_stats;
     // normalize pseudocounts
-    for( size_t parent = 0; parent < _stats.size(); parent += _target_dim ) {
+    for( size_t parent = 0; parent < stats.size(); parent += _target_dim ) {
         // calculate norm
         size_t top = parent + _target_dim;
-        Real norm = std::accumulate( &(_stats[parent]), &(_stats[parent]) + _target_dim, 0.0 );
+        Real norm = std::accumulate( &(stats[parent]), &(stats[parent]) + _target_dim, 0.0 );
         if( norm != 0.0 )
             norm = 1.0 / norm;
         // normalize
         for( size_t i = parent; i < top; ++i )
-            _stats[i] *= norm;
+            stats[i] *= norm;
     }
-    // reset _stats to _initial_stats
-    Prob result = _stats;
-    _stats = _initial_stats;
-    return result;
+    return stats;
 }
 
+// In the case of a conditional probability table, the 
+// parameters are identical to the estimated factor
+Prob CondProbEstimation::parameters(const Prob& p) {
+    return estimate(p);
+}
 
 Permute SharedParameters::calculatePermutation( const std::vector<Var> &varOrder, VarSet &outVS ) {
     outVS = VarSet( varOrder.begin(), varOrder.end(), varOrder.size() );
@@ -88,6 +86,7 @@ void SharedParameters::setPermsAndVarSetsFromVarOrders() {
     if( _varorders.size() == 0 )
         return;
     DAI_ASSERT( _estimation != NULL );
+    _suffStats = new Prob(_estimation->probSize(), 0);
 
     // Construct the permutation objects and the varsets
     for( FactorOrientations::const_iterator foi = _varorders.begin(); foi != _varorders.end(); ++foi ) {
@@ -100,15 +99,14 @@ void SharedParameters::setPermsAndVarSetsFromVarOrders() {
 
 
 SharedParameters::SharedParameters( const FactorOrientations &varorders, ParameterEstimation *estimation, bool ownPE )
-  : _varsets(), _perms(), _varorders(varorders), _estimation(estimation), _ownEstimation(ownPE)
+  : _varsets(), _perms(), _varorders(varorders), _estimation(estimation), _ownEstimation(ownPE), _suffStats(NULL)
 {
     // Calculate the necessary permutations and varsets
     setPermsAndVarSetsFromVarOrders();
 }
 
-
 SharedParameters::SharedParameters( std::istream &is, const FactorGraph &fg )
-  : _varsets(), _perms(), _varorders(), _estimation(NULL), _ownEstimation(true)
+  : _varsets(), _perms(), _varorders(), _estimation(NULL), _ownEstimation(true), _suffStats(NULL)
 {
     // Read the desired parameter estimation method from the stream
     std::string est_method;
@@ -174,13 +172,13 @@ void SharedParameters::collectSufficientStatistics( InfAlg &alg ) {
         Prob p( b.states(), 0.0 );
         for( size_t entry = 0; entry < b.states(); ++entry )
             p[entry] = b[perm.convertLinearIndex(entry)]; // apply inverse permutation
-        _estimation->addSufficientStatistics( p );
+        (*_suffStats) += p;
     }
 }
 
 
 void SharedParameters::setParameters( FactorGraph &fg ) {
-    Prob p = _estimation->estimate();
+    Prob p = _estimation->estimate(this->currentSufficientStatistics());
     for( std::map<FactorIndex, Permute>::iterator i = _perms.begin(); i != _perms.end(); ++i ) {
         Permute &perm = i->second;
         VarSet &vs = _varsets[i->first];
@@ -214,6 +212,11 @@ void MaximizationStep::maximize( FactorGraph &fg ) {
         _params[i].setParameters( fg );
 }
 
+
+void MaximizationStep::clear( ) {
+    for( size_t i = 0; i < _params.size(); ++i )
+        _params[i].clear( );
+}
 
 const std::string EMAlg::MAX_ITERS_KEY("max_iters");
 const std::string EMAlg::LOG_Z_TOL_KEY("log_z_tol");
@@ -267,6 +270,8 @@ bool EMAlg::hasSatisfiedTermConditions() const {
 Real EMAlg::iterate( MaximizationStep &mstep ) {
     Real logZ = 0;
     Real likelihood = 0;
+
+    mstep.clear();
 
     _estep.run();
     logZ = _estep.logZ();

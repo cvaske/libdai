@@ -76,12 +76,12 @@ class ParameterEstimation {
         }
 
         /// Estimate the factor using the accumulated sufficient statistics and reset.
-        virtual Prob estimate() = 0;
+        virtual Prob estimate(const Prob &p) = 0;
 
-        /// Accumulate the sufficient statistics for \a p.
-        virtual void addSufficientStatistics( const Prob &p ) = 0;
+        /// Return parameters for the estimated factor, in a format specific to the parameter estimation
+        virtual Prob parameters(const Prob &p) = 0;
 
-        /// Returns the size of the Prob that should be passed to addSufficientStatistics.
+        /// Returns the size of the Prob that should be passed to estimate and parameters
         virtual size_t probSize() const = 0;
 
     private:
@@ -134,12 +134,12 @@ class CondProbEstimation : private ParameterEstimation {
         /** The format of the resulting Prob keeps all the values for
          *  \f$ P(X | Y=y) \f$ in sequential order in the array.
          */
-        virtual Prob estimate();
+        virtual Prob estimate(const Prob &p);
 
-        /// Accumulate sufficient statistics from the expectations in \a p
-        virtual void addSufficientStatistics( const Prob &p );
+        /// Return a parameter vector for the estimated factor
+        virtual Prob parameters(const Prob &p);
 
-        /// Returns the required size for arguments to addSufficientStatistics().
+        /// Returns the required size for arguments to estimate().
         virtual size_t probSize() const { return _stats.size(); }
 };
 
@@ -173,6 +173,8 @@ class SharedParameters {
         ParameterEstimation *_estimation;
         /// Indicates whether \c *this gets ownership of _estimation
         bool _ownEstimation;
+        /// The current sufficient statistics
+        Prob* _suffStats;
 
         /// Calculates the permutation that permutes the canonical ordering into the desired ordering
         /** \param varOrder Desired ordering of variables
@@ -199,10 +201,11 @@ class SharedParameters {
         SharedParameters( std::istream &is, const FactorGraph &fg );
 
         /// Copy constructor
-        SharedParameters( const SharedParameters &sp ) : _varsets(sp._varsets), _perms(sp._perms), _varorders(sp._varorders), _estimation(sp._estimation), _ownEstimation(sp._ownEstimation) {
+        SharedParameters( const SharedParameters &sp ) : _varsets(sp._varsets), _perms(sp._perms), _varorders(sp._varorders), _estimation(sp._estimation), _ownEstimation(sp._ownEstimation), _suffStats(NULL) {
             // If sp owns its _estimation object, we should clone it instead of copying the pointer
             if( _ownEstimation )
                 _estimation = _estimation->clone();
+            _suffStats = new Prob(*sp._suffStats);
         }
 
         /// Destructor
@@ -210,6 +213,8 @@ class SharedParameters {
             // If we own the _estimation object, we should delete it now
             if( _ownEstimation )
                 delete _estimation;
+            if( _suffStats != NULL) 
+                delete _suffStats;
         }
 
         /// Collect the sufficient statistics from expected values (beliefs) according to \a alg
@@ -221,6 +226,11 @@ class SharedParameters {
          */
         void collectSufficientStatistics( InfAlg &alg );
 
+        /// Return the current sufficient statistics
+        const Prob& currentSufficientStatistics() const { return *_suffStats; }
+
+        ParameterEstimation& getPEst() const { return *_estimation; }
+
         /// Estimate and set the shared parameters
         /** Based on the sufficient statistics collected so far, the shared parameters are estimated
          *  using the parameter estimation subclass method estimate(). Then, each of the relevant
@@ -228,6 +238,16 @@ class SharedParameters {
          *  to those parameters (permuting the parameters accordingly).
          */
         void setParameters( FactorGraph &fg );
+
+        /// Return a reference to the vector of factor orientations
+        /** This is necessary for determing which variables were used
+         *  to estimate parameters, and analysis of sufficient statistics
+         *  after an Estimation step has been performed.
+         */
+        const FactorOrientations& getFactorOrientations() const { return _varorders; }
+
+        /// Reset the current sufficient statistics
+        void clear( ) { _suffStats->fill(0); }
 };
 
 
@@ -256,6 +276,9 @@ class MaximizationStep {
 
         /// Using all of the currently added expectations, make new factors with maximized parameters and set them in the FactorGraph.
         void maximize( FactorGraph &fg );
+        
+        /// Clear the step, to be called at the begining of each step
+        void clear( );
 
     /// \name Iterator interface
     //@{
