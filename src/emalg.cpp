@@ -37,6 +37,8 @@ ParameterEstimation* ParameterEstimation::construct( const std::string &method, 
 }
 
 
+std::string CondProbEstimation::_name = "CondProbEstimation";
+
 ParameterEstimation* CondProbEstimation::factory( const PropertySet &p ) {
     size_t target_dimension = p.getStringAs<size_t>("target_dim");
     size_t total_dimension = p.getStringAs<size_t>("total_dim");
@@ -46,7 +48,6 @@ ParameterEstimation* CondProbEstimation::factory( const PropertySet &p ) {
     return new CondProbEstimation( target_dimension, Prob( total_dimension, pseudo_count ) );
 }
 
-
 CondProbEstimation::CondProbEstimation( size_t target_dimension, const Prob &pseudocounts )
   : _target_dim(target_dimension), _stats(pseudocounts), _initial_stats(pseudocounts)
 {
@@ -54,7 +55,14 @@ CondProbEstimation::CondProbEstimation( size_t target_dimension, const Prob &pse
 }
 
 
-Prob CondProbEstimation::estimate(const Prob& p) {
+Prob CondProbEstimation::parametersToFactor(const Prob& p) {
+    Prob result(p);
+    return result;
+}
+
+// In the case of a conditional probability table, the 
+// parameters are identical to the estimated factor
+Prob CondProbEstimation::parameters(const Prob& p) {
     Prob stats = p + _initial_stats;
     // normalize pseudocounts
     for( size_t parent = 0; parent < stats.size(); parent += _target_dim ) {
@@ -70,11 +78,6 @@ Prob CondProbEstimation::estimate(const Prob& p) {
     return stats;
 }
 
-// In the case of a conditional probability table, the 
-// parameters are identical to the estimated factor
-Prob CondProbEstimation::parameters(const Prob& p) {
-    return estimate(p);
-}
 
 Permute SharedParameters::calculatePermutation( const std::vector<Var> &varOrder, VarSet &outVS ) {
     outVS = VarSet( varOrder.begin(), varOrder.end(), varOrder.size() );
@@ -104,6 +107,7 @@ SharedParameters::SharedParameters( const FactorOrientations &varorders, Paramet
     // Calculate the necessary permutations and varsets
     setPermsAndVarSetsFromVarOrders();
 }
+
 
 SharedParameters::SharedParameters( std::istream &is, const FactorGraph &fg )
   : _varsets(), _perms(), _varorders(), _estimation(NULL), _ownEstimation(true), _suffStats(NULL)

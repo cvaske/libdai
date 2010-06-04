@@ -76,13 +76,19 @@ class ParameterEstimation {
         }
 
         /// Estimate the factor using the accumulated sufficient statistics and reset.
-        virtual Prob estimate(const Prob &p) = 0;
+        virtual Prob estimate(const Prob &p) { return parametersToFactor(parameters(p)); }
+
+        /// Convert a set of estimated parameters to a factor
+        virtual Prob parametersToFactor(const Prob &params) = 0;
 
         /// Return parameters for the estimated factor, in a format specific to the parameter estimation
         virtual Prob parameters(const Prob &p) = 0;
 
         /// Returns the size of the Prob that should be passed to estimate and parameters
         virtual size_t probSize() const = 0;
+
+        // Returns the name of the class of this parameter estimation
+        virtual const std::string& name() const = 0;
 
     private:
         /// A static registry containing all methods registered so far.
@@ -104,6 +110,8 @@ class CondProbEstimation : private ParameterEstimation {
         Prob _stats;
         /// Initial pseudocounts
         Prob _initial_stats;
+
+        static std::string _name; // = "CondProbEstimation";
 
     public:
         /// Constructor
@@ -134,13 +142,16 @@ class CondProbEstimation : private ParameterEstimation {
         /** The format of the resulting Prob keeps all the values for
          *  \f$ P(X | Y=y) \f$ in sequential order in the array.
          */
-        virtual Prob estimate(const Prob &p);
-
-        /// Return a parameter vector for the estimated factor
         virtual Prob parameters(const Prob &p);
+
+        // For a discrete conditional probability distribution,
+        // the parameters are equivalent to the resulting factor
+        virtual Prob parametersToFactor(const Prob &p);
 
         /// Returns the required size for arguments to estimate().
         virtual size_t probSize() const { return _stats.size(); }
+        
+        virtual const std::string& name() const { return _name; }
 };
 
 
