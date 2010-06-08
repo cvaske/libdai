@@ -99,7 +99,8 @@ class LC : public DAIAlgFG {
         LC() : DAIAlgFG(), _pancakes(), _cavitydists(), _phis(), _beliefs(), _maxdiff(), _iters(), props() {}
 
         /// Construct from FactorGraph \a fg and PropertySet \a opts
-        /** \param opts Parameters @see Properties
+        /** \param fg Factor graph.
+         *  \param opts Parameters @see Properties
          */
         LC( const FactorGraph &fg, const PropertySet &opts );
 
@@ -108,8 +109,8 @@ class LC : public DAIAlgFG {
     //@{
         virtual LC* clone() const { return new LC(*this); }
         virtual std::string identify() const;
-        virtual Factor belief( const Var &n ) const { return( _beliefs[findVar(n)] ); }
-        virtual Factor belief( const VarSet &/*ns*/ ) const { DAI_THROW(NOT_IMPLEMENTED); return Factor(); }
+        virtual Factor belief( const Var &v ) const { return beliefV( findVar( v ) ); }
+        virtual Factor belief( const VarSet &/*vs*/ ) const;
         virtual Factor beliefV( size_t i ) const { return _beliefs[i]; }
         virtual std::vector<Factor> beliefs() const { return _beliefs; }
         virtual Real logZ() const { DAI_THROW(NOT_IMPLEMENTED); return 0.0; }

@@ -75,6 +75,18 @@ class JTree : public DAIAlgRG {
              */
             DAI_ENUM(InfType,SUMPROD,MAXPROD);
 
+            /// Enumeration of elimination cost functions used for constructing the junction tree
+            /** The cost of eliminating a variable can be (\see [\ref KoF09], page 314)):
+             *  - MINNEIGHBORS the number of neighbors it has in the current adjacency graph;
+             *  - MINWEIGHT the product of the number of states of all neighbors in the current adjacency graph;
+             *  - MINFILL the number of edges that need to be added to the adjacency graph due to the elimination;
+             *  - WEIGHTEDMINFILL the sum of weights of the edges that need to be added to the adjacency graph
+             *    due to the elimination, where a weight of an edge is the produt of weights of its constituent
+             *    vertices.
+             *  The elimination sequence is chosen greedily in order to minimize the cost.
+             */
+            DAI_ENUM(HeuristicType,MINNEIGHBORS,MINWEIGHT,MINFILL,WEIGHTEDMINFILL);
+
             /// Verbosity (amount of output sent to stderr)
             size_t verbose;
 
@@ -83,6 +95,9 @@ class JTree : public DAIAlgRG {
 
             /// Type of inference
             InfType inference;
+
+            /// Heuristic to use for constructing the junction tree
+            HeuristicType heuristic;
         } props;
 
         /// Name of this inference algorithm
@@ -95,10 +110,9 @@ class JTree : public DAIAlgRG {
         JTree() : DAIAlgRG(), _mes(), _logZ(), RTree(), Qa(), Qb(), props() {}
 
         /// Construct from FactorGraph \a fg and PropertySet \a opts
-        /** \param fg factor graph (which has to be connected);
+        /** \param fg factor graph
          ** \param opts Parameters @see Properties
-         *  \param automatic if \c true, construct the junction tree automatically, using the MinFill heuristic.
-         *  \throw FACTORGRAPH_NOT_CONNECTED if \a fg is not connected
+         *  \param automatic if \c true, construct the junction tree automatically, using the heuristic in opts['heuristic'].
          */
         JTree( const FactorGraph &fg, const PropertySet &opts, bool automatic=true );
     //@}
@@ -108,8 +122,7 @@ class JTree : public DAIAlgRG {
     //@{
         virtual JTree* clone() const { return new JTree(*this); }
         virtual std::string identify() const;
-        virtual Factor belief( const Var &n ) const;
-        virtual Factor belief( const VarSet &ns ) const;
+        virtual Factor belief( const VarSet &vs ) const;
         virtual std::vector<Factor> beliefs() const;
         virtual Real logZ() const;
         virtual void init() {}
@@ -129,22 +142,31 @@ class JTree : public DAIAlgRG {
         /** First, constructs a weighted graph, where the nodes are the elements of \a cl, and 
          *  each edge is weighted with the cardinality of the intersection of the state spaces of the nodes. 
          *  Then, a maximal spanning tree for this weighted graph is calculated.
-         *  Finally, a corresponding region graph is built:
+         *  Subsequently, a corresponding region graph is built:
          *    - the outer regions correspond with the cliques and have counting number 1;
          *    - the inner regions correspond with the seperators, i.e., the intersections of two 
-         *      cliques that are neighbors in the spanning tree, and have counting number -1;
+         *      cliques that are neighbors in the spanning tree, and have counting number -1
+         *      (except empty ones, which have counting number 0);
          *    - inner and outer regions are connected by an edge if the inner region is a
          *      seperator for the outer region.
+         *  Finally, Beliefs are constructed.
+         *  If \a verify == \c true, checks whether each factor is subsumed by a clique.
          */
-        void GenerateJT( const std::vector<VarSet> &cl );
+        void construct( const FactorGraph &fg, const std::vector<VarSet> &cl, bool verify=false );
+
+        /// Constructs a junction tree based on the cliques \a cl (corresponding to some elimination sequence).
+        /** Invokes construct() and then constructs messages.
+         *  \see construct()
+         */
+        void GenerateJT( const FactorGraph &fg, const std::vector<VarSet> &cl );
 
         /// Returns constant reference to the message from outer region \a alpha to its \a _beta 'th neighboring inner region
         const Factor & message( size_t alpha, size_t _beta ) const { return _mes[alpha][_beta]; }
         /// Returns reference to the message from outer region \a alpha to its \a _beta 'th neighboring inner region
         Factor & message( size_t alpha, size_t _beta ) { return _mes[alpha][_beta]; }
 
-        /// Runs junction tree algorithm using HUGIN updates
-        /** \note The initial messages may be arbitrary.
+        /// Runs junction tree algorithm using HUGIN (message-free) updates
+        /** \note The initial messages may be arbitrary; actually they are not used at all.
          */
         void runHUGIN();
 
@@ -176,11 +198,11 @@ class JTree : public DAIAlgRG {
 };
 
 
-/// Calculates upper bound to the treewidth of a FactorGraph, using the MinFill heuristic
+/// Calculates upper bound to the treewidth of a FactorGraph, using the specified heuristic
 /** \relates JTree
  *  \return a pair (number of variables in largest clique, number of states in largest clique)
  */
-std::pair<size_t,size_t> boundTreewidth( const FactorGraph & fg );
+std::pair<size_t,double> boundTreewidth( const FactorGraph &fg, greedyVariableElimination::eliminationCostFunction fn );
 
 
 } // end of namespace dai

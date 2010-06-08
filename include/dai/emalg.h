@@ -25,6 +25,7 @@
 
 /// \file
 /// \brief Defines classes related to Expectation Maximization (EMAlg, ParameterEstimation, CondProbEstimation and SharedParameters)
+/// \todo Implement parameter estimation for undirected models / factor graphs.
 
 
 namespace dai {
@@ -106,8 +107,6 @@ class CondProbEstimation : private ParameterEstimation {
     private:
         /// Number of states of the variable of interest
         size_t _target_dim;
-        /// Current pseudocounts
-        Prob _stats;
         /// Initial pseudocounts
         Prob _initial_stats;
 
@@ -149,7 +148,7 @@ class CondProbEstimation : private ParameterEstimation {
         virtual Prob parametersToFactor(const Prob &p);
 
         /// Returns the required size for arguments to estimate().
-        virtual size_t probSize() const { return _stats.size(); }
+        virtual size_t probSize() const { return _initial_stats.size(); }
         
         virtual const std::string& name() const { return _name; }
 };
@@ -327,9 +326,6 @@ class MaximizationStep {
  *  parameters, which may result in faster convergence in some cases.
  *
  *  \author Charles Vaske
- *
- *  \todo Expand the sprinkler example such that it generates a sample of the probability distribution,
- *  and add another example that estimates the factor parameters of the sprinkler network using EM from this sample.
  */
 class EMAlg {
     private:
@@ -439,6 +435,11 @@ class EMAlg {
 
 
 } // end of namespace dai
+
+
+/** \example example_sprinkler_em.cpp
+ *  This example shows how to use the EMAlg class.
+ */
 
 
 #endif

@@ -4,7 +4,7 @@
  *  2, or (at your option) any later version. libDAI is distributed without any
  *  warranty. See the file COPYING for more details.
  *
- *  Copyright (C) 2006-2009  Joris Mooij  [joris dot mooij at libdai dot org]
+ *  Copyright (C) 2006-2010  Joris Mooij  [joris dot mooij at libdai dot org]
  *  Copyright (C) 2006-2007  Radboud University Nijmegen, The Netherlands
  */
 
@@ -79,6 +79,7 @@ class Exception : public std::runtime_error {
                    ASSERTION_FAILED,
                    IMPOSSIBLE_TYPECAST,
                    OBJECT_NOT_FOUND,
+                   BELIEF_NOT_AVAILABLE,
                    UNKNOWN_ENUM_VALUE,
                    UNKNOWN_DAI_ALGORITHM,
                    UNKNOWN_PARAMETER_ESTIMATION_METHOD,
@@ -86,6 +87,7 @@ class Exception : public std::runtime_error {
                    UNKNOWN_PROPERTY,
                    MALFORMED_PROPERTY,
                    NOT_ALL_PROPERTIES_SPECIFIED,
+                   INVALID_ALIAS,
                    CANNOT_READ_FILE,
                    CANNOT_WRITE_FILE,
                    INVALID_FACTORGRAPH_FILE,
@@ -101,14 +103,14 @@ class Exception : public std::runtime_error {
         /// Constructor
         Exception( Code _code, const std::string& msg="", const std::string& detailedMsg="" ) : std::runtime_error(ErrorStrings[_code] + " [" +  msg + "]"), errorcode(_code) {
             if( !detailedMsg.empty() )
-                std::cerr << "ERROR: " << detailedMsg << std::endl;
+                std::cerr << "EXCEPTION: " << detailedMsg << std::endl;
         }
 
         /// Returns error code of this exception
         Code code() const { return errorcode; }
 
         /// Returns error message corresponding to an error code
-        const std::string &message( const Code c ) const { return ErrorStrings[c]; }
+        const std::string& message( const Code c ) const { return ErrorStrings[c]; }
 
 
     private:

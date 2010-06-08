@@ -26,16 +26,7 @@
 #endif
 
 
-#ifdef CYGWIN
-bool isnan( double x ) {
-    return __isnand( x );  // isnan() is a macro in Cygwin (as required by C99)
-}
-#endif
-
 #ifdef WINDOWS
-bool isnan( double x ) {
-    return _isnan( x );
-}
 double atanh( double x ) {
     return boost::math::atanh( x );
 }
@@ -47,13 +38,19 @@ double log1p( double x ) {
 
 namespace dai {
 
-
-Real max( const std::vector<Real> &v ) {
-    if( v.size() == 0 )
-        return INFINITY;
-    else
-        return *std::max_element( v.begin(), v.end() );
+#if defined CYGWIN
+bool isnan( Real x ) {
+    return __isnand( x );  // isnan() is a macro in Cygwin (as required by C99)
 }
+#elif defined WINDOWS
+bool isnan( Real x ) {
+    return _isnan( x );
+}
+#else
+bool isnan( Real x ) {
+    return std::isnan( x );
+}
+#endif
 
 // Returns user+system time in seconds
 double toc() {
@@ -78,11 +75,11 @@ _rnd_gen_type _rnd_gen(42U);
 /// Uniform distribution with values between 0 and 1 (0 inclusive, 1 exclusive).
 boost::uniform_real<Real> _uni_dist(0,1);
 
-/// Global uniform random random number
-boost::variate_generator<_rnd_gen_type&, boost::uniform_real<Real> > _uni_rnd(_rnd_gen, _uni_dist);
-
 /// Normal distribution with mean 0 and standard deviation 1.
 boost::normal_distribution<Real> _normal_dist;
+
+/// Global uniform random random number
+boost::variate_generator<_rnd_gen_type&, boost::uniform_real<Real> > _uni_rnd(_rnd_gen, _uni_dist);
 
 /// Global random number generator with standard normal distribution
 boost::variate_generator<_rnd_gen_type&, boost::normal_distribution<Real> > _normal_rnd(_rnd_gen, _normal_dist);
@@ -90,6 +87,7 @@ boost::variate_generator<_rnd_gen_type&, boost::normal_distribution<Real> > _nor
 
 void rnd_seed( size_t seed ) {
     _rnd_gen.seed(seed);
+    _normal_rnd.distribution().reset(); // needed for clearing the cache used in boost::normal_distribution
 }
 
 Real rnd_uniform() {

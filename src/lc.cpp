@@ -4,7 +4,7 @@
  *  2, or (at your option) any later version. libDAI is distributed without any
  *  warranty. See the file COPYING for more details.
  *
- *  Copyright (C) 2006-2009  Joris Mooij  [joris dot mooij at libdai dot org]
+ *  Copyright (C) 2006-2010  Joris Mooij  [joris dot mooij at libdai dot org]
  *  Copyright (C) 2006-2007  Radboud University Nijmegen, The Netherlands
  */
 
@@ -30,15 +30,17 @@ const char *LC::Name = "LC";
 void LC::setProperties( const PropertySet &opts ) {
     DAI_ASSERT( opts.hasKey("tol") );
     DAI_ASSERT( opts.hasKey("maxiter") );
-    DAI_ASSERT( opts.hasKey("verbose") );
     DAI_ASSERT( opts.hasKey("cavity") );
     DAI_ASSERT( opts.hasKey("updates") );
 
     props.tol = opts.getStringAs<Real>("tol");
     props.maxiter = opts.getStringAs<size_t>("maxiter");
-    props.verbose = opts.getStringAs<size_t>("verbose");
     props.cavity = opts.getStringAs<Properties::CavityType>("cavity");
     props.updates = opts.getStringAs<Properties::UpdateType>("updates");
+    if( opts.hasKey("verbose") )
+        props.verbose = opts.getStringAs<size_t>("verbose");
+    else
+        props.verbose = 0;
     if( opts.hasKey("cavainame") )
         props.cavainame = opts.getStringAs<string>("cavainame");
     if( opts.hasKey("cavaiopts") )
@@ -54,15 +56,15 @@ void LC::setProperties( const PropertySet &opts ) {
 
 PropertySet LC::getProperties() const {
     PropertySet opts;
-    opts.Set( "tol", props.tol );
-    opts.Set( "maxiter", props.maxiter );
-    opts.Set( "verbose", props.verbose );
-    opts.Set( "cavity", props.cavity );
-    opts.Set( "updates", props.updates );
-    opts.Set( "cavainame", props.cavainame );
-    opts.Set( "cavaiopts", props.cavaiopts );
-    opts.Set( "reinit", props.reinit );
-    opts.Set( "damping", props.damping );
+    opts.set( "tol", props.tol );
+    opts.set( "maxiter", props.maxiter );
+    opts.set( "verbose", props.verbose );
+    opts.set( "cavity", props.cavity );
+    opts.set( "updates", props.updates );
+    opts.set( "cavainame", props.cavainame );
+    opts.set( "cavaiopts", props.cavaiopts );
+    opts.set( "reinit", props.reinit );
+    opts.set( "damping", props.damping );
     return opts;
 }
 
@@ -116,6 +118,18 @@ string LC::identify() const {
 
 void LC::CalcBelief (size_t i) {
     _beliefs[i] = _pancakes[i].marginal(var(i));
+}
+
+
+Factor LC::belief (const VarSet &ns) const {
+    if( ns.size() == 0 )
+        return Factor();
+    else if( ns.size() == 1 )
+        return beliefV( findVar( *(ns.begin()) ) );
+    else {
+        DAI_THROW(BELIEF_NOT_AVAILABLE);
+        return Factor();
+    }
 }
 
 
@@ -246,8 +260,6 @@ Real LC::run() {
         cerr << endl;
 
     double tic = toc();
-    vector<Real> diffs( nrVars(), INFINITY );
-    Real maxDiff = INFINITY;
 
     Real md = InitCavityDists( props.cavainame, props.cavaiopts );
     if( md > _maxdiff )
@@ -267,9 +279,9 @@ Real LC::run() {
         CalcBelief(i);
     }
 
-    vector<Factor> old_beliefs;
-    for(size_t i=0; i < nrVars(); i++ )
-        old_beliefs.push_back(beliefV(i));
+    vector<Factor> oldBeliefsV;
+    for( size_t i = 0; i < nrVars(); i++ )
+        oldBeliefsV.push_back( beliefV(i) );
 
     bool hasNaNs = false;
     for( size_t i=0; i < nrVars(); i++ )
@@ -291,7 +303,8 @@ Real LC::run() {
 
     // do several passes over the network until maximum number of iterations has
     // been reached or until the maximum belief difference is smaller than tolerance
-    for( _iters=0; _iters < props.maxiter && maxDiff > props.tol; _iters++ ) {
+    Real maxDiff = INFINITY;
+    for( _iters = 0; _iters < props.maxiter && maxDiff > props.tol; _iters++ ) {
         // Sequential updates
         if( props.updates == Properties::UpdateType::SEQRND )
             random_shuffle( update_seq.begin(), update_seq.end() );
@@ -306,11 +319,11 @@ Real LC::run() {
         }
 
         // compare new beliefs with old ones
-        for(size_t i=0; i < nrVars(); i++ ) {
-            diffs[i] = dist( beliefV(i), old_beliefs[i], Prob::DISTLINF );
-            old_beliefs[i] = beliefV(i);
+        maxDiff = -INFINITY;
+        for( size_t i = 0; i < nrVars(); i++ ) {
+            maxDiff = std::max( maxDiff, dist( beliefV(i), oldBeliefsV[i], DISTLINF ) );
+            oldBeliefsV[i] = beliefV(i);
         }
-        maxDiff = max( diffs );
 
         if( props.verbose >= 3 )
             cerr << Name << "::run:  maxdiff " << maxDiff << " after " << _iters+1 << " passes" << endl;

@@ -30,7 +30,7 @@ namespace dai {
 using namespace std;
 
 
-FactorGraph::FactorGraph( const std::vector<Factor> &P ) : G(), _backup() {
+FactorGraph::FactorGraph( const std::vector<Factor> &P ) : _G(), _backup() {
     // add factors, obtain variables
     set<Var> varset;
     _factors.reserve( P.size() );
@@ -68,7 +68,7 @@ void FactorGraph::constructGraph( size_t nrEdges ) {
     }
 
     // create bipartite graph
-    G.construct( nrVars(), nrFactors(), edges.begin(), edges.end() );
+    _G.construct( nrVars(), nrFactors(), edges.begin(), edges.end() );
 }
 
 
@@ -86,11 +86,11 @@ std::ostream& operator<< ( std::ostream &os, const FactorGraph &fg ) {
             os << i->states() << " ";
         os << endl;
         size_t nr_nonzeros = 0;
-        for( size_t k = 0; k < fg.factor(I).states(); k++ )
+        for( size_t k = 0; k < fg.factor(I).nrStates(); k++ )
             if( fg.factor(I)[k] != (Real)0 )
                 nr_nonzeros++;
         os << nr_nonzeros << endl;
-        for( size_t k = 0; k < fg.factor(I).states(); k++ )
+        for( size_t k = 0; k < fg.factor(I).nrStates(); k++ )
             if( fg.factor(I)[k] != (Real)0 )
                 os << k << " " << setw(os.precision()+4) << fg.factor(I)[k] << endl;
     }
@@ -188,7 +188,7 @@ std::istream& operator>> ( std::istream& is, FactorGraph &fg ) {
             is >> val;
 
             // store value, but permute indices first according to internal representation
-            facs.back()[permindex.convertLinearIndex( li )] = val;
+            facs.back().set( permindex.convertLinearIndex( li ), val );
         }
     }
 
@@ -198,11 +198,6 @@ std::istream& operator>> ( std::istream& is, FactorGraph &fg ) {
     fg = FactorGraph(facs);
 
     return is;
-}
-
-
-VarSet FactorGraph::delta( size_t i ) const {
-    return( Delta(i) / var(i) );
 }
 
 
@@ -220,7 +215,7 @@ VarSet FactorGraph::Delta( size_t i ) const {
 VarSet FactorGraph::Delta( const VarSet &ns ) const {
     VarSet result;
     for( VarSet::const_iterator n = ns.begin(); n != ns.end(); n++ )
-        result |= Delta(findVar(*n));
+        result |= Delta( findVar(*n) );
     return result;
 }
 
@@ -258,7 +253,7 @@ void FactorGraph::WriteToFile( const char *filename, size_t precision ) const {
 
 
 void FactorGraph::printDot( std::ostream &os ) const {
-    os << "graph G {" << endl;
+    os << "graph FactorGraph {" << endl;
     os << "node[shape=circle,width=0.4,fixedsize=true];" << endl;
     for( size_t i = 0; i < nrVars(); i++ )
         os << "\tv" << var(i).label() << ";" << endl;
@@ -272,19 +267,72 @@ void FactorGraph::printDot( std::ostream &os ) const {
 }
 
 
-vector<VarSet> FactorGraph::Cliques() const {
+GraphAL FactorGraph::MarkovGraph() const {
+    GraphAL G( nrVars() );
+    for( size_t i = 0; i < nrVars(); i++ )
+        foreach( const Neighbor &I, nbV(i) )
+            foreach( const Neighbor &j, nbF(I) )
+                if( i < j )
+                    G.addEdge( i, j, true );
+    return G;
+}
+
+
+bool FactorGraph::isMaximal( size_t I ) const {
+    const VarSet& I_vars = factor(I).vars();
+    size_t I_size = I_vars.size();
+
+    if( I_size == 0 ) {
+        for( size_t J = 0; J < nrFactors(); J++ ) 
+            if( J != I )
+                if( factor(J).vars().size() > 0 )
+                    return false;
+        return true;
+    } else {
+        foreach( const Neighbor& i, nbF(I) ) {
+            foreach( const Neighbor& J, nbV(i) ) {
+                if( J != I )
+                    if( (factor(J).vars() >> I_vars) && (factor(J).vars().size() != I_size) )
+                        return false;
+            }
+        }
+        return true;
+    }
+}
+
+
+size_t FactorGraph::maximalFactor( size_t I ) const {
+    const VarSet& I_vars = factor(I).vars();
+    size_t I_size = I_vars.size();
+
+    if( I_size == 0 ) {
+        for( size_t J = 0; J < nrFactors(); J++ )
+            if( J != I )
+                if( factor(J).vars().size() > 0 )
+                    return maximalFactor( J );
+        return I;
+    } else {
+        foreach( const Neighbor& i, nbF(I) ) {
+            foreach( const Neighbor& J, nbV(i) ) {
+                if( J != I )
+                    if( (factor(J).vars() >> I_vars) && (factor(J).vars().size() != I_size) )
+                        return maximalFactor( J );
+            }
+        }
+        return I;
+    }
+}
+
+
+vector<VarSet> FactorGraph::maximalFactorDomains() const {
     vector<VarSet> result;
 
-    for( size_t I = 0; I < nrFactors(); I++ ) {
-        bool maximal = true;
-        for( size_t J = 0; (J < nrFactors()) && maximal; J++ )
-            if( (factor(J).vars() >> factor(I).vars()) && (factor(J).vars() != factor(I).vars()) )
-                maximal = false;
-
-        if( maximal )
+    for( size_t I = 0; I < nrFactors(); I++ )
+        if( isMaximal( I ) )
             result.push_back( factor(I).vars() );
-    }
 
+    if( result.size() == 0 )
+        result.push_back( VarSet() );
     return result;
 }
 
@@ -292,7 +340,7 @@ vector<VarSet> FactorGraph::Cliques() const {
 void FactorGraph::clamp( size_t i, size_t x, bool backup ) {
     DAI_ASSERT( x <= var(i).states() );
     Factor mask( var(i), (Real)0 );
-    mask[x] = (Real)1;
+    mask.set( x, (Real)1 );
 
     map<size_t, Factor> newFacs;
     foreach( const Neighbor &I, nbV(i) )
@@ -309,7 +357,7 @@ void FactorGraph::clampVar( size_t i, const vector<size_t> &is, bool backup ) {
 
     foreach( size_t i, is ) {
         DAI_ASSERT( i <= n.states() );
-        mask_n[i] = (Real)1;
+        mask_n.set( i, (Real)1 );
     }
 
     map<size_t, Factor> newFacs;
@@ -320,12 +368,12 @@ void FactorGraph::clampVar( size_t i, const vector<size_t> &is, bool backup ) {
 
 
 void FactorGraph::clampFactor( size_t I, const vector<size_t> &is, bool backup ) {
-    size_t st = factor(I).states();
+    size_t st = factor(I).nrStates();
     Factor newF( factor(I).vars(), (Real)0 );
 
     foreach( size_t i, is ) {
         DAI_ASSERT( i <= st );
-        newF[i] = factor(I)[i];
+        newF.set( i, factor(I)[i] );
     }
 
     setFactor( I, newF, backup );
@@ -345,7 +393,8 @@ void FactorGraph::restoreFactor( size_t I ) {
     if( it != _backup.end() ) {
         setFactor(I, it->second);
         _backup.erase(it);
-    }
+    } else
+        DAI_THROW(OBJECT_NOT_FOUND);
 }
 
 
@@ -403,6 +452,7 @@ FactorGraph FactorGraph::clamped( size_t i, size_t state ) const {
     Var v = var( i );
     Real zeroth_order = (Real)1;
     vector<Factor> clamped_facs;
+    clamped_facs.push_back( createFactorDelta( v, state ) );
     for( size_t I = 0; I < nrFactors(); I++ ) {
         VarSet v_I = factor(I).vars();
         Factor new_factor;

@@ -49,9 +49,9 @@ ParameterEstimation* CondProbEstimation::factory( const PropertySet &p ) {
 }
 
 CondProbEstimation::CondProbEstimation( size_t target_dimension, const Prob &pseudocounts )
-  : _target_dim(target_dimension), _stats(pseudocounts), _initial_stats(pseudocounts)
+  : _target_dim(target_dimension), _initial_stats(pseudocounts)
 {
-    DAI_ASSERT( !(_stats.size() % _target_dim) );
+    DAI_ASSERT( !(_initial_stats.size() % _target_dim) );
 }
 
 
@@ -68,12 +68,14 @@ Prob CondProbEstimation::parameters(const Prob& p) {
     for( size_t parent = 0; parent < stats.size(); parent += _target_dim ) {
         // calculate norm
         size_t top = parent + _target_dim;
-        Real norm = std::accumulate( &(stats[parent]), &(stats[parent]) + _target_dim, 0.0 );
+        Real norm = 0.0;
+        for( size_t i = parent; i < top; ++i )
+            norm += stats[i];
         if( norm != 0.0 )
             norm = 1.0 / norm;
         // normalize
         for( size_t i = parent; i < top; ++i )
-            stats[i] *= norm;
+            stats.set( i, stats[i] * norm );
     }
     return stats;
 }
@@ -173,9 +175,9 @@ void SharedParameters::collectSufficientStatistics( InfAlg &alg ) {
         VarSet &vs = _varsets[i->first];
 
         Factor b = alg.belief(vs);
-        Prob p( b.states(), 0.0 );
-        for( size_t entry = 0; entry < b.states(); ++entry )
-            p[entry] = b[perm.convertLinearIndex(entry)]; // apply inverse permutation
+        Prob p( b.nrStates(), 0.0 );
+        for( size_t entry = 0; entry < b.nrStates(); ++entry )
+            p.set( entry, b[perm.convertLinearIndex(entry)] ); // apply inverse permutation
         (*_suffStats) += p;
     }
 }
@@ -188,8 +190,8 @@ void SharedParameters::setParameters( FactorGraph &fg ) {
         VarSet &vs = _varsets[i->first];
 
         Factor f( vs, 0.0 );
-        for( size_t entry = 0; entry < f.states(); ++entry )
-            f[perm.convertLinearIndex(entry)] = p[entry];
+        for( size_t entry = 0; entry < f.nrStates(); ++entry )
+            f.set( perm.convertLinearIndex(entry), p[entry] );
 
         fg.setFactor( i->first, f );
     }

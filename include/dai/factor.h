@@ -55,12 +55,13 @@ namespace dai {
  *  \todo Define a better fileformat for .fg files (maybe using XML)?
  *  \todo Add support for sparse factors.
  */
-template <typename T> class TFactor {
+template <typename T>
+class TFactor {
     private:
         /// Stores the variables on which the factor depends
-        VarSet      _vs;
+        VarSet _vs;
         /// Stores the factor values
-        TProb<T>    _p;
+        TProb<T> _p;
 
     public:
     /// \name Constructors and destructors
@@ -83,8 +84,9 @@ template <typename T> class TFactor {
          *  \param x Vector with values to be copied.
          */
         template<typename S>
-        TFactor( const VarSet& vars, const std::vector<S> &x ) : _vs(vars), _p(x.begin(), x.begin() + _vs.nrStates(), _vs.nrStates()) {
+        TFactor( const VarSet& vars, const std::vector<S> &x ) : _vs(vars), _p() {
             DAI_ASSERT( x.size() == vars.nrStates() );
+	    _p = TProb<T>( x.begin(), x.begin() + _vs.nrStates(), _vs.nrStates() );
         }
 
         /// Constructs factor depending on variables in \a vars, copying the values from an array
@@ -95,15 +97,28 @@ template <typename T> class TFactor {
 
         /// Constructs factor depending on variables in \a vars, copying the values from \a p
         TFactor( const VarSet& vars, const TProb<T> &p ) : _vs(vars), _p(p) {
-            DAI_DEBASSERT( _vs.nrStates() == _p.size() );
+            DAI_ASSERT( _vs.nrStates() == _p.size() );
         }
 
         /// Constructs factor depending on variables in \a vars, permuting the values given in \a p accordingly
         TFactor( const std::vector<Var> &vars, const std::vector<T> &p ) : _vs(vars.begin(), vars.end(), vars.size()), _p(p.size()) {
+            size_t nrStates = 1;
+            for( size_t i = 0; i < vars.size(); i++ )
+                nrStates *= vars[i].states();
+            DAI_ASSERT( nrStates == p.size() );
             Permute permindex(vars);
             for( size_t li = 0; li < p.size(); ++li )
-                _p[permindex.convertLinearIndex(li)] = p[li];
+                _p.set( permindex.convertLinearIndex(li), p[li] );
         }
+    //@}
+
+    /// \name Get/set individual entries
+    //@{
+        /// Sets \a i 'th entry to \a val
+        void set( size_t i, T val ) { _p.set( i, val ); }
+
+        /// Gets \a i 'th entry
+        T get( size_t i ) const { return _p[i]; }
     //@}
 
     /// \name Queries
@@ -117,9 +132,6 @@ template <typename T> class TFactor {
         /// Returns a copy of the \a i 'th entry of the value vector
         T operator[] (size_t i) const { return _p[i]; }
 
-        /// Returns a reference to the \a i 'th entry of the value vector
-        T& operator[] (size_t i) { return _p[i]; }
-
         /// Returns constant reference to variable set (i.e., the variables on which the factor depends)
         const VarSet& vars() const { return _vs; }
 
@@ -129,7 +141,7 @@ template <typename T> class TFactor {
         /// Returns the number of possible joint states of the variables on which the factor depends, \f$\prod_{l\in L} S_l\f$
         /** \note This is equal to the length of the value vector.
          */
-        size_t states() const { return _p.size(); }
+        size_t nrStates() const { return _p.size(); }
 
         /// Returns the Shannon entropy of \c *this, \f$-\sum_i p_i \log p_i\f$
         T entropy() const { return _p.entropy(); }
@@ -142,6 +154,9 @@ template <typename T> class TFactor {
 
         /// Returns sum of all values
         T sum() const { return _p.sum(); }
+        
+        /// Returns sum of absolute values
+        T sumAbs() const { return _p.sumAbs(); }
 
         /// Returns maximum absolute value of all values
         T maxAbs() const { return _p.maxAbs(); }
@@ -154,15 +169,28 @@ template <typename T> class TFactor {
 
         /// Returns strength of this factor (between variables \a i and \a j), as defined in eq. (52) of [\ref MoK07b]
         T strength( const Var &i, const Var &j ) const;
+
+        /// Comparison
+        bool operator==( const TFactor<T>& y ) const {
+            return (_vs == y._vs) && (_p == y._p);
+        }
     //@}
 
     /// \name Unary transformations
     //@{
-        /// Returns pointwise absolute value
-        TFactor<T> abs() const {
+        /// Returns negative of \c *this
+        TFactor<T> operator- () const { 
             // Note: the alternative (shorter) way of implementing this,
             //   return TFactor<T>( _vs, _p.abs() );
             // is slower because it invokes the copy constructor of TProb<T>
+            TFactor<T> x;
+            x._vs = _vs;
+            x._p = -_p;
+            return x;
+        }
+
+        /// Returns pointwise absolute value
+        TFactor<T> abs() const {
             TFactor<T> x;
             x._vs = _vs;
             x._p = _p.abs();
@@ -186,7 +214,7 @@ template <typename T> class TFactor {
             x._p = _p.log(zero);
             return x;
         }
-        
+
         /// Returns pointwise inverse
         /** If \a zero == \c true, uses <tt>1/0==0</tt>; otherwise, <tt>1/0==Inf</tt>.
          */
@@ -198,7 +226,9 @@ template <typename T> class TFactor {
         }
 
         /// Returns normalized copy of \c *this, using the specified norm
-        TFactor<T> normalized( typename TProb<T>::NormType norm=TProb<T>::NORMPROB ) const {
+        /** \throw NOT_NORMALIZABLE if the norm is zero
+         */
+        TFactor<T> normalized( ProbNormType norm=NORMPROB ) const {
             TFactor<T> x;
             x._vs = _vs;
             x._p = _p.normalized( norm );
@@ -209,19 +239,32 @@ template <typename T> class TFactor {
     /// \name Unary operations
     //@{
         /// Draws all values i.i.d. from a uniform distribution on [0,1)
-        TFactor<T> & randomize () { _p.randomize(); return *this; }
+        TFactor<T>& randomize() { _p.randomize(); return *this; }
 
         /// Sets all values to \f$1/n\f$ where \a n is the number of states
-        TFactor<T>& setUniform () { _p.setUniform(); return *this; }
+        TFactor<T>& setUniform() { _p.setUniform(); return *this; }
+
+        /// Applies absolute value pointwise
+        TFactor<T>& takeAbs() { _p.takeAbs(); return *this; }
+
+        /// Applies exponent pointwise
+        TFactor<T>& takeExp() { _p.takeExp(); return *this; }
+
+        /// Applies logarithm pointwise
+        /** If \a zero == \c true, uses <tt>log(0)==0</tt>; otherwise, <tt>log(0)==-Inf</tt>.
+         */
+        TFactor<T>& takeLog( bool zero = false ) { _p.takeLog(zero); return *this; }
 
         /// Normalizes factor using the specified norm
-        T normalize( typename TProb<T>::NormType norm=TProb<T>::NORMPROB ) { return _p.normalize( norm ); }
+        /** \throw NOT_NORMALIZABLE if the norm is zero
+         */
+        T normalize( ProbNormType norm=NORMPROB ) { return _p.normalize( norm ); }
     //@}
 
     /// \name Operations with scalars
     //@{
         /// Sets all values to \a x
-        TFactor<T> & fill (T x) { _p.fill( x ); return *this; }
+        TFactor<T>& fill (T x) { _p.fill( x ); return *this; }
 
         /// Adds scalar \a x to each value
         TFactor<T>& operator+= (T x) { _p += x; return *this; }
@@ -365,7 +408,7 @@ template <typename T> class TFactor {
                 result._p.p().clear();
                 result._p.p().reserve( N );
                 for( size_t i = 0; i < N; i++, ++i_f, ++i_g )
-                    result._p.p().push_back( op( _p[i_f], g._p[i_g] ) );
+                    result._p.p().push_back( op( _p[i_f], g[i_g] ) );
             }
             return result;
         }
@@ -411,7 +454,7 @@ template <typename T> class TFactor {
     //@{
         /// Returns a slice of \c *this, where the subset \a vars is in state \a varsState
         /** \pre \a vars sould be a subset of vars()
-         *  \pre \a varsState < vars.states()
+         *  \pre \a varsState < vars.nrStates()
          *
          *  The result is a factor that depends on the variables of *this except those in \a vars,
          *  obtained by setting the variables in \a vars to the joint state specified by the linear index
@@ -454,9 +497,9 @@ template<typename T> TFactor<T> TFactor<T>::slice( const VarSet& vars, size_t va
     // OPTIMIZE ME
     IndexFor i_vars (vars, _vs);
     IndexFor i_varsrem (varsrem, _vs);
-    for( size_t i = 0; i < states(); i++, ++i_vars, ++i_varsrem )
+    for( size_t i = 0; i < nrStates(); i++, ++i_vars, ++i_varsrem )
         if( (size_t)i_vars == varsState )
-            result._p[i_varsrem] = _p[i];
+            result.set( i_varsrem, _p[i] );
 
     return result;
 }
@@ -469,10 +512,10 @@ template<typename T> TFactor<T> TFactor<T>::marginal(const VarSet &vars, bool no
 
     IndexFor i_res( res_vars, _vs );
     for( size_t i = 0; i < _p.size(); i++, ++i_res )
-        res._p[i_res] += _p[i];
+        res.set( i_res, res[i_res] + _p[i] );
 
     if( normed )
-        res.normalize( TProb<T>::NORMPROB );
+        res.normalize( NORMPROB );
 
     return res;
 }
@@ -486,10 +529,10 @@ template<typename T> TFactor<T> TFactor<T>::maxMarginal(const VarSet &vars, bool
     IndexFor i_res( res_vars, _vs );
     for( size_t i = 0; i < _p.size(); i++, ++i_res )
         if( _p[i] > res._p[i_res] )
-            res._p[i_res] = _p[i];
+            res.set( i_res, _p[i] );
 
     if( normed )
-        res.normalize( TProb<T>::NORMPROB );
+        res.normalize( NORMPROB );
 
     return res;
 }
@@ -529,7 +572,7 @@ template<typename T> T TFactor<T>::strength( const Var &i, const Var &j ) const 
  */
 template<typename T> std::ostream& operator<< (std::ostream& os, const TFactor<T>& f) {
     os << "(" << f.vars() << ", (";
-    for( size_t i = 0; i < f.states(); i++ )
+    for( size_t i = 0; i < f.nrStates(); i++ )
         os << (i == 0 ? "" : ", ") << f[i];
     os << "))";
     return os;
@@ -540,7 +583,7 @@ template<typename T> std::ostream& operator<< (std::ostream& os, const TFactor<T
 /** \relates TFactor
  *  \pre f.vars() == g.vars()
  */
-template<typename T> T dist( const TFactor<T> &f, const TFactor<T> &g, typename TProb<T>::DistType dt ) {
+template<typename T> T dist( const TFactor<T> &f, const TFactor<T> &g, ProbDistType dt ) {
     if( f.vars().empty() || g.vars().empty() )
         return -1;
     else {
@@ -555,8 +598,8 @@ template<typename T> T dist( const TFactor<T> &f, const TFactor<T> &g, typename 
  *  \pre f.vars() == g.vars()
  */
 template<typename T> TFactor<T> max( const TFactor<T> &f, const TFactor<T> &g ) {
-    DAI_ASSERT( f._vs == g._vs );
-    return TFactor<T>( f._vs, max( f.p(), g.p() ) );
+    DAI_ASSERT( f.vars() == g.vars() );
+    return TFactor<T>( f.vars(), max( f.p(), g.p() ) );
 }
 
 
@@ -565,8 +608,8 @@ template<typename T> TFactor<T> max( const TFactor<T> &f, const TFactor<T> &g ) 
  *  \pre f.vars() == g.vars()
  */
 template<typename T> TFactor<T> min( const TFactor<T> &f, const TFactor<T> &g ) {
-    DAI_ASSERT( f._vs == g._vs );
-    return TFactor<T>( f._vs, min( f.p(), g.p() ) );
+    DAI_ASSERT( f.vars() == g.vars() );
+    return TFactor<T>( f.vars(), min( f.p(), g.p() ) );
 }
 
 
@@ -579,12 +622,51 @@ template<typename T> T MutualInfo(const TFactor<T> &f) {
     VarSet::const_iterator it = f.vars().begin();
     Var i = *it; it++; Var j = *it;
     TFactor<T> projection = f.marginal(i) * f.marginal(j);
-    return dist( f.normalized(), projection, TProb<T>::DISTKL );
+    return dist( f.normalized(), projection, DISTKL );
 }
 
 
 /// Represents a factor with values of type dai::Real.
 typedef TFactor<Real> Factor;
+
+
+/// Returns a binary unnormalized single-variable factor \f$ \exp(hx) \f$ where \f$ x = \pm 1 \f$
+/** \param x Variable (should be binary)
+ *  \param h Field strength
+ */
+Factor createFactorIsing( const Var &x, Real h );
+
+
+/// Returns a binary unnormalized pairwise factor \f$ \exp(J x_1 x_2) \f$ where \f$ x_1, x_2 = \pm 1 \f$
+/** \param x1 First variable (should be binary)
+ *  \param x2 Second variable (should be binary)
+ *  \param J Coupling strength
+ */
+Factor createFactorIsing( const Var &x1, const Var &x2, Real J );
+
+
+/// Returns a random factor on the variables \a vs with strength \a beta
+/** Each entry are set by drawing a normally distributed random with mean
+ *  0 and standard-deviation \a beta, and taking its exponent.
+ *  \param vs Variables
+ *  \param beta Factor strength (inverse temperature)
+ */
+Factor createFactorExpGauss( const VarSet &vs, Real beta );
+
+
+/// Returns a pairwise Potts factor \f$ \exp( J \delta_{x_1, x_2} ) \f$
+/** \param x1 First variable
+ *  \param x2 Second variable (should have the same number of states as \a x1)
+ *  \param J  Factor strength
+ */
+Factor createFactorPotts( const Var &x1, const Var &x2, Real J );
+
+
+/// Returns a Kronecker delta point mass
+/** \param v Variable
+ *  \param state The state of \a v that should get value 1
+ */
+Factor createFactorDelta( const Var &v, size_t state );
 
 
 } // end of namespace dai

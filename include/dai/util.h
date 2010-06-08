@@ -4,7 +4,7 @@
  *  2, or (at your option) any later version. libDAI is distributed without any
  *  warranty. See the file COPYING for more details.
  *
- *  Copyright (C) 2006-2009  Joris Mooij  [joris dot mooij at libdai dot org]
+ *  Copyright (C) 2006-2010  Joris Mooij  [joris dot mooij at libdai dot org]
  *  Copyright (C) 2006-2007  Radboud University Nijmegen, The Netherlands
  */
 
@@ -24,11 +24,15 @@
 #include <iostream>
 #include <boost/foreach.hpp>
 #include <boost/functional/hash.hpp>
+#include <boost/lexical_cast.hpp>
 #include <algorithm>
+#include <cerrno>
+
+#include <dai/exceptions.h>
 
 
 #if defined(WINDOWS)
-    #include <map> // an alternative would be to use boost/tr1/unordered_map.hpp
+    #include <boost/tr1/unordered_map.hpp> // only present in boost 1.37 and higher
 #elif defined(CYGWIN)
     #include <boost/tr1/unordered_map.hpp> // only present in boost 1.37 and higher
 #elif defined(MACOSX)
@@ -61,9 +65,6 @@
 
 
 #ifdef WINDOWS
-    /// Returns true if argument is NAN (Not A Number)
-    bool isnan( double x );
-
     /// Returns inverse hyperbolic tangent of argument
     double atanh( double x );
 
@@ -81,6 +82,9 @@ namespace dai {
 /// Real number (alias for \c double, which could be changed to <tt>long double</tt> if necessary)
 typedef double Real;
 
+/// Returns true if argument is NAN (Not A Number)
+bool isnan( Real x );
+
 /// Returns logarithm of \a x
 inline Real log( Real x ) {
     return std::log(x);
@@ -96,23 +100,20 @@ inline Real exp( Real x ) {
     return std::exp(x);
 }
 
-/// Returns maximum value of a std::vector<Real>
-Real max( const std::vector<Real> &v );
+/// Returns \a to the power \a y
+inline Real pow( Real x, Real y ) {
+    errno = 0;
+    Real result = std::pow(x, y);
+    DAI_DEBASSERT( errno == 0 );
+    return result;
+}
 
 
-#ifdef WINDOWS
-    /// hash_map is an alias for \c std::map.
-    /** Since there is no TR1 unordered_map implementation available yet, we fall back on std::map.
-     */
-    template <typename T, typename U, typename H = boost::hash<T> >
-        class hash_map : public std::map<T,U> {};
-#else
-    /// hash_map is an alias for \c std::tr1::unordered_map.
-    /** We use the (experimental) TR1 unordered_map implementation included in modern GCC distributions or in boost versions 1.37 and higher.
-     */
-    template <typename T, typename U, typename H = boost::hash<T> >
-        class hash_map : public std::tr1::unordered_map<T,U,H> {};
-#endif
+/// hash_map is an alias for \c std::tr1::unordered_map.
+/** We use the (experimental) TR1 unordered_map implementation included in modern GCC distributions or in boost versions 1.37 and higher.
+ */
+template <typename T, typename U, typename H = boost::hash<T> >
+    class hash_map : public std::tr1::unordered_map<T,U,H> {};
 
 
 /// Returns wall clock time in seconds
@@ -141,6 +142,13 @@ int rnd_int( int min, int max );
 /// Returns a random integer in the half-open interval [0, \a n)
 inline int rnd( int n ) {
     return rnd_int( 0, n-1 );
+}
+
+
+/// Converts a variable of type \a T to a \c std::string by using a \c std::stringstream
+template<class T>
+std::string toString( const T& x ) {
+    return boost::lexical_cast<std::string>(x);
 }
 
 
@@ -195,6 +203,24 @@ std::vector<T> concat( const std::vector<T>& u, const std::vector<T>& v ) {
 
 /// Split a string into tokens delimited by one of the characters in \a delim
 void tokenizeString( const std::string& s, std::vector<std::string>& outTokens, const std::string& delim="\t\n" );
+
+
+/// Enumerates different ways of normalizing a probability measure.
+/**
+ *  - NORMPROB means that the sum of all entries should be 1;
+ *  - NORMLINF means that the maximum absolute value of all entries should be 1.
+ */
+typedef enum { NORMPROB, NORMLINF } ProbNormType;
+
+/// Enumerates different distance measures between probability measures.
+/**
+ *  - DISTL1 is the \f$\ell_1\f$ distance (sum of absolute values of pointwise difference);
+ *  - DISTLINF is the \f$\ell_\infty\f$ distance (maximum absolute value of pointwise difference);
+ *  - DISTTV is the total variation distance (half of the \f$\ell_1\f$ distance);
+ *  - DISTKL is the Kullback-Leibler distance (\f$\sum_i p_i (\log p_i - \log q_i)\f$).
+ *  - DISTHEL is the Hellinger distance (\f$\frac{1}{2}\sum_i (\sqrt{p_i}-\sqrt{q_i})^2\f$).
+ */
+typedef enum { DISTL1, DISTLINF, DISTTV, DISTKL, DISTHEL } ProbDistType;
 
 
 } // end of namespace dai

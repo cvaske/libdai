@@ -5,7 +5,7 @@
  *  warranty. See the file COPYING for more details.
  *
  *  Copyright (C) 2002       Martijn Leisink  [martijn@mbfys.kun.nl]
- *  Copyright (C) 2006-2009  Joris Mooij      [joris dot mooij at libdai dot org]
+ *  Copyright (C) 2006-2010  Joris Mooij      [joris dot mooij at libdai dot org]
  *  Copyright (C) 2002-2007  Radboud University Nijmegen, The Netherlands
  */
 
@@ -37,11 +37,11 @@ namespace dai {
  *      size_t iter = 0;
  *      for( ; i.valid(); i++, iter++ ) {
  *          cout << "State of forVars: " << calcState( forVars, iter ) << "; ";
- *          cout << "state of indexVars: " << calcState( indexVars, long(i) ) << endl;
+ *          cout << "state of indexVars: " << calcState( indexVars, size_t(i) ) << endl;
  *      }
  *  \endcode
  *  loops over all joint states of the variables in \a forVars,
- *  and <tt>(long)i</tt> equals the linear index of the corresponding
+ *  and <tt>(size_t)i</tt> equals the linear index of the corresponding
  *  state of \a indexVars, where the variables in \a indexVars that are
  *  not in \a forVars assume their zero'th value.
  *  \idea Optimize all indices as follows: keep a cache of all (or only
@@ -157,14 +157,32 @@ class Permute {
         /// Construct from vector of variables.
         /** The implied permutation maps the index of each variable in \a vars according to the canonical ordering 
          *  (i.e., sorted ascendingly according to their label) to the index it has in \a vars.
+         *  If \a reverse == \c true, reverses the indexing in \a vars first.
          */
-        Permute( const std::vector<Var> &vars ) : _ranges(vars.size()), _sigma(vars.size()) {
-            for( size_t i = 0; i < vars.size(); ++i )
-                _ranges[i] = vars[i].states();
-            VarSet vs( vars.begin(), vars.end(), vars.size() );
-            VarSet::const_iterator vs_i = vs.begin();
-            for( size_t i = 0; i < vs.size(); ++i, ++vs_i )
-                _sigma[i] = find( vars.begin(), vars.end(), *vs_i ) - vars.begin();
+        Permute( const std::vector<Var> &vars, bool reverse=false ) : _ranges(), _sigma() {
+            size_t N = vars.size();
+
+            // construct ranges
+            _ranges.reserve( N );
+            for( size_t i = 0; i < N; ++i )
+                if( reverse )
+                    _ranges.push_back( vars[N - 1 - i].states() );
+                else
+                    _ranges.push_back( vars[i].states() );
+
+            // construct VarSet out of vars
+            VarSet vs( vars.begin(), vars.end(), N );
+            DAI_ASSERT( vs.size() == N );
+            
+            // construct sigma
+            _sigma.reserve( N );
+            for( VarSet::const_iterator vs_i = vs.begin(); vs_i != vs.end(); ++vs_i ) {
+                size_t ind = find( vars.begin(), vars.end(), *vs_i ) - vars.begin();
+                if( reverse )
+                    _sigma.push_back( N - 1 - ind );
+                else
+                    _sigma.push_back( ind );
+            }
         }
 
         /// Calculates a permuted linear index.
@@ -195,11 +213,14 @@ class Permute {
             return sigma_li;
         }
 
-        /// Returns const reference to the permutation
+        /// Returns constant reference to the permutation
         const std::vector<size_t>& sigma() const { return _sigma; }
 
         /// Returns reference to the permutation
         std::vector<size_t>& sigma() { return _sigma; }
+
+        /// Returns constant reference to the dimensionality vector
+        const std::vector<size_t>& ranges() { return _ranges; }
 
         /// Returns the result of applying the permutation on \a i
         size_t operator[]( size_t i ) const {
@@ -208,6 +229,18 @@ class Permute {
 #else
             return _sigma[i];
 #endif
+        }
+
+        /// Returns the inverse permutation
+        Permute inverse() const {
+            size_t N = _ranges.size();
+            std::vector<size_t> invRanges( N, 0 );
+            std::vector<size_t> invSigma( N, 0 );
+            for( size_t i = 0; i < N; i++ ) {
+                invSigma[_sigma[i]] = i;
+                invRanges[i] = _ranges[_sigma[i]];
+            }
+            return Permute( invRanges, invSigma );
         }
 };
 
@@ -281,6 +314,13 @@ class multifor {
             operator++();
         }
 
+        /// Resets the state
+        multifor& reset() {
+            fill( _indices.begin(), _indices.end(), 0 );
+            _linear_index = 0;
+            return( *this );
+        }
+
         /// Returns \c true if the current indices are valid
         bool valid() const {
             return( _linear_index >= 0 );
@@ -306,7 +346,7 @@ class multifor {
  *  \note The same functionality could be achieved by simply iterating over the linear state and using dai::calcState(),
  *  but the State class offers a more efficient implementation.
  *
- *  \note A State is very similar to a \link multifor \endlink, but tailored for Var 's and VarSet 's.
+ *  \note A State is very similar to a dai::multifor, but tailored for Var 's and VarSet 's.
  *
  *  \see dai::calcLinearState(), dai::calcState()
  *

@@ -4,7 +4,7 @@
  *  2, or (at your option) any later version. libDAI is distributed without any
  *  warranty. See the file COPYING for more details.
  *
- *  Copyright (C) 2006-2009  Joris Mooij  [joris dot mooij at libdai dot org]
+ *  Copyright (C) 2006-2010  Joris Mooij  [joris dot mooij at libdai dot org]
  *  Copyright (C) 2006-2007  Radboud University Nijmegen, The Netherlands
  */
 
@@ -60,13 +60,13 @@ void BP::setProperties( const PropertySet &opts ) {
 
 PropertySet BP::getProperties() const {
     PropertySet opts;
-    opts.Set( "tol", props.tol );
-    opts.Set( "maxiter", props.maxiter );
-    opts.Set( "verbose", props.verbose );
-    opts.Set( "logdomain", props.logdomain );
-    opts.Set( "updates", props.updates );
-    opts.Set( "damping", props.damping );
-    opts.Set( "inference", props.inference );
+    opts.set( "tol", props.tol );
+    opts.set( "maxiter", props.maxiter );
+    opts.set( "verbose", props.verbose );
+    opts.set( "logdomain", props.logdomain );
+    opts.set( "updates", props.updates );
+    opts.set( "damping", props.damping );
+    opts.set( "inference", props.inference );
     return opts;
 }
 
@@ -105,7 +105,7 @@ void BP::construct() {
             newEP.newMessage = Prob( var(i).states() );
 
             if( DAI_BP_FAST ) {
-                newEP.index.reserve( factor(I).states() );
+                newEP.index.reserve( factor(I).nrStates() );
                 for( IndexFor k( var(i), factor(I).vars() ); k.valid(); ++k )
                     newEP.index.push_back( k );
             }
@@ -141,10 +141,7 @@ void BP::findMaxResidual( size_t &i, size_t &_I ) {
 }
 
 
-void BP::calcNewMessage( size_t i, size_t _I ) {
-    // calculate updated message I->i
-    size_t I = nbV(i,_I);
-
+Prob BP::calcIncomingMessageProduct( size_t I, bool without_i, size_t i ) const {
     Factor Fprod( factor(I) );
     Prob &prod = Fprod.p();
     if( props.logdomain )
@@ -152,7 +149,7 @@ void BP::calcNewMessage( size_t i, size_t _I ) {
 
     // Calculate product of incoming messages and factor I
     foreach( const Neighbor &j, nbF(I) )
-        if( j != i ) { // for all j in I \ i
+        if( !(without_i && (j == i)) ) {
             // prod_j will be the product of messages coming into j
             Prob prod_j( var(j).states(), props.logdomain ? 0.0 : 1.0 );
             foreach( const Neighbor &J, nbV(j) )
@@ -165,50 +162,66 @@ void BP::calcNewMessage( size_t i, size_t _I ) {
 
             // multiply prod with prod_j
             if( !DAI_BP_FAST ) {
-                /* UNOPTIMIZED (SIMPLE TO READ, BUT SLOW) VERSION */
+                // UNOPTIMIZED (SIMPLE TO READ, BUT SLOW) VERSION
                 if( props.logdomain )
                     Fprod += Factor( var(j), prod_j );
                 else
                     Fprod *= Factor( var(j), prod_j );
             } else {
-                /* OPTIMIZED VERSION */
+                // OPTIMIZED VERSION
                 size_t _I = j.dual;
                 // ind is the precalculated IndexFor(j,I) i.e. to x_I == k corresponds x_j == ind[k]
                 const ind_t &ind = index(j, _I);
+
                 for( size_t r = 0; r < prod.size(); ++r )
                     if( props.logdomain )
-                        prod[r] += prod_j[ind[r]];
+                        prod.set( r, prod[r] + prod_j[ind[r]] );
                     else
-                        prod[r] *= prod_j[ind[r]];
+                        prod.set( r, prod[r] * prod_j[ind[r]] );
             }
+    }
+    return prod;
+}
+
+
+void BP::calcNewMessage( size_t i, size_t _I ) {
+    // calculate updated message I->i
+    size_t I = nbV(i,_I);
+
+    Prob marg;
+    if( factor(I).vars().size() == 1 ) // optimization
+        marg = factor(I).p();
+    else {
+        Factor Fprod( factor(I) );
+        Prob &prod = Fprod.p();
+        prod = calcIncomingMessageProduct( I, true, i );
+
+        if( props.logdomain ) {
+            prod -= prod.max();
+            prod.takeExp();
         }
 
-    if( props.logdomain ) {
-        prod -= prod.max();
-        prod.takeExp();
-    }
-
-    // Marginalize onto i
-    Prob marg;
-    if( !DAI_BP_FAST ) {
-        /* UNOPTIMIZED (SIMPLE TO READ, BUT SLOW) VERSION */
-        if( props.inference == Properties::InfType::SUMPROD )
-            marg = Fprod.marginal( var(i) ).p();
-        else
-            marg = Fprod.maxMarginal( var(i) ).p();
-    } else {
-        /* OPTIMIZED VERSION */
-        marg = Prob( var(i).states(), 0.0 );
-        // ind is the precalculated IndexFor(i,I) i.e. to x_I == k corresponds x_i == ind[k]
-        const ind_t ind = index(i,_I);
-        if( props.inference == Properties::InfType::SUMPROD )
-            for( size_t r = 0; r < prod.size(); ++r )
-                marg[ind[r]] += prod[r];
-        else
-            for( size_t r = 0; r < prod.size(); ++r )
-                if( prod[r] > marg[ind[r]] )
-                    marg[ind[r]] = prod[r];
-        marg.normalize();
+        // Marginalize onto i
+        if( !DAI_BP_FAST ) {
+            // UNOPTIMIZED (SIMPLE TO READ, BUT SLOW) VERSION
+            if( props.inference == Properties::InfType::SUMPROD )
+                marg = Fprod.marginal( var(i) ).p();
+            else
+                marg = Fprod.maxMarginal( var(i) ).p();
+        } else {
+            // OPTIMIZED VERSION 
+            marg = Prob( var(i).states(), 0.0 );
+            // ind is the precalculated IndexFor(i,I) i.e. to x_I == k corresponds x_i == ind[k]
+            const ind_t ind = index(i,_I);
+            if( props.inference == Properties::InfType::SUMPROD )
+                for( size_t r = 0; r < prod.size(); ++r )
+                    marg.set( ind[r], marg[ind[r]] + prod[r] );
+            else
+                for( size_t r = 0; r < prod.size(); ++r )
+                    if( prod[r] > marg[ind[r]] )
+                        marg.set( ind[r], prod[r] );
+            marg.normalize();
+        }
     }
 
     // Store result
@@ -219,7 +232,7 @@ void BP::calcNewMessage( size_t i, size_t _I ) {
 
     // Update the residual if necessary
     if( props.updates == Properties::UpdateType::SEQMAX )
-        updateResidual( i, _I , dist( newMessage( i, _I ), message( i, _I ), Prob::DISTLINF ) );
+        updateResidual( i, _I , dist( newMessage( i, _I ), message( i, _I ), DISTLINF ) );
 }
 
 
@@ -232,13 +245,15 @@ Real BP::run() {
         cerr << endl;
 
     double tic = toc();
-    vector<Real> diffs( nrVars(), INFINITY );
     Real maxDiff = INFINITY;
 
-    vector<Factor> old_beliefs;
-    old_beliefs.reserve( nrVars() );
+    vector<Factor> oldBeliefsV, oldBeliefsF;
+    oldBeliefsV.reserve( nrVars() );
     for( size_t i = 0; i < nrVars(); ++i )
-        old_beliefs.push_back( beliefV(i) );
+        oldBeliefsV.push_back( beliefV(i) );
+    oldBeliefsF.reserve( nrFactors() );
+    for( size_t I = 0; I < nrFactors(); ++I )
+        oldBeliefsF.push_back( beliefF(I) );
 
     size_t nredges = nrEdges();
     vector<Edge> update_seq;
@@ -249,10 +264,9 @@ Real BP::run() {
                 calcNewMessage( i, I.iter );
     } else {
         update_seq.reserve( nredges );
-        /// \todo Investigate whether performance increases by switching the order of the following two loops:
-        for( size_t i = 0; i < nrVars(); ++i )
-            foreach( const Neighbor &I, nbV(i) )
-                update_seq.push_back( Edge( i, I.iter ) );
+        for( size_t I = 0; I < nrFactors(); I++ )
+            foreach( const Neighbor &i, nbF(I) )
+                update_seq.push_back( Edge( i, i.dual ) );
     }
 
     // do several passes over the network until maximum number of iterations has
@@ -299,12 +313,17 @@ Real BP::run() {
         }
 
         // calculate new beliefs and compare with old ones
+        maxDiff = -INFINITY;
         for( size_t i = 0; i < nrVars(); ++i ) {
-            Factor nb( beliefV(i) );
-            diffs[i] = dist( nb, old_beliefs[i], Prob::DISTLINF );
-            old_beliefs[i] = nb;
+            Factor b( beliefV(i) );
+            maxDiff = std::max( maxDiff, dist( b, oldBeliefsV[i], DISTLINF ) );
+            oldBeliefsV[i] = b;
         }
-        maxDiff = max( diffs );
+        for( size_t I = 0; I < nrFactors(); ++I ) {
+            Factor b( beliefF(I) );
+            maxDiff = std::max( maxDiff, dist( b, oldBeliefsF[I], DISTLINF ) );
+            oldBeliefsF[I] = b;
+        }
 
         if( props.verbose >= 3 )
             cerr << Name << "::run:  maxdiff " << maxDiff << " after " << _iters+1 << " passes" << endl;
@@ -339,50 +358,6 @@ void BP::calcBeliefV( size_t i, Prob &p ) const {
 }
 
 
-void BP::calcBeliefF( size_t I, Prob &p ) const {
-    Factor Fprod( factor( I ) );
-    Prob &prod = Fprod.p();
-
-    if( props.logdomain )
-        prod.takeLog();
-
-    foreach( const Neighbor &j, nbF(I) ) {
-        // prod_j will be the product of messages coming into j
-        Prob prod_j( var(j).states(), props.logdomain ? 0.0 : 1.0 );
-        foreach( const Neighbor &J, nbV(j) )
-            if( J != I ) { // for all J in nb(j) \ I
-                if( props.logdomain )
-                    prod_j += newMessage( j, J.iter );
-                else
-                    prod_j *= newMessage( j, J.iter );
-            }
-
-        // multiply prod with prod_j
-        if( !DAI_BP_FAST ) {
-            /* UNOPTIMIZED (SIMPLE TO READ, BUT SLOW) VERSION */
-            if( props.logdomain )
-                Fprod += Factor( var(j), prod_j );
-            else
-                Fprod *= Factor( var(j), prod_j );
-        } else {
-            /* OPTIMIZED VERSION */
-            size_t _I = j.dual;
-            // ind is the precalculated IndexFor(j,I) i.e. to x_I == k corresponds x_j == ind[k]
-            const ind_t & ind = index(j, _I);
-
-            for( size_t r = 0; r < prod.size(); ++r ) {
-                if( props.logdomain )
-                    prod[r] += prod_j[ind[r]];
-                else
-                    prod[r] *= prod_j[ind[r]];
-            }
-        }
-    }
-
-    p = prod;
-}
-
-
 Factor BP::beliefV( size_t i ) const {
     Prob p;
     calcBeliefV( i, p );
@@ -411,11 +386,6 @@ Factor BP::beliefF( size_t I ) const {
 }
 
 
-Factor BP::belief( const Var &n ) const {
-    return( beliefV( findVar( n ) ) );
-}
-
-
 vector<Factor> BP::beliefs() const {
     vector<Factor> result;
     for( size_t i = 0; i < nrVars(); ++i )
@@ -427,14 +397,17 @@ vector<Factor> BP::beliefs() const {
 
 
 Factor BP::belief( const VarSet &ns ) const {
-    if( ns.size() == 1 )
-        return belief( *(ns.begin()) );
+    if( ns.size() == 0 )
+        return Factor();
+    else if( ns.size() == 1 )
+        return beliefV( findVar( *(ns.begin() ) ) );
     else {
         size_t I;
         for( I = 0; I < nrFactors(); I++ )
             if( factor(I).vars() >> ns )
                 break;
-        DAI_ASSERT( I != nrFactors() );
+        if( I == nrFactors() )
+            DAI_THROW(BELIEF_NOT_AVAILABLE);
         return beliefF(I).marginal(ns);
     }
 }
@@ -442,10 +415,10 @@ Factor BP::belief( const VarSet &ns ) const {
 
 Real BP::logZ() const {
     Real sum = 0.0;
-    for(size_t i = 0; i < nrVars(); ++i )
+    for( size_t i = 0; i < nrVars(); ++i )
         sum += (1.0 - nbV(i).size()) * beliefV(i).entropy();
     for( size_t I = 0; I < nrFactors(); ++I )
-        sum -= dist( beliefF(I), factor(I), Prob::DISTKL );
+        sum -= dist( beliefF(I), factor(I), DISTKL );
     return sum;
 }
 
@@ -482,7 +455,7 @@ void BP::updateMessage( size_t i, size_t _I ) {
         else
             message(i,_I) = (message(i,_I) ^ props.damping) * (newMessage(i,_I) ^ (1.0 - props.damping));
         if( props.updates == Properties::UpdateType::SEQMAX )
-            updateResidual( i, _I, dist( newMessage(i,_I), message(i,_I), Prob::DISTLINF ) );
+            updateResidual( i, _I, dist( newMessage(i,_I), message(i,_I), DISTLINF ) );
     }
 }
 
@@ -539,7 +512,7 @@ std::vector<size_t> BP::findMaximum() const {
 
             // The allowed configuration is restrained according to the variables assigned so far:
             // pick the argmax amongst the allowed states
-            Real maxProb = numeric_limits<Real>::min();
+            Real maxProb = -numeric_limits<Real>::max();
             State maxState( factor(I).vars() );
             for( State s( factor(I).vars() ); s.valid(); ++s ){
                 // First, calculate whether this state is consistent with variables that

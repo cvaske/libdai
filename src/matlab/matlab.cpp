@@ -44,7 +44,7 @@ mxArray *Factors2mx(const vector<Factor> &Ps) {
 
         mxArray *BiP = mxCreateNumericArray(I->vars().size(), &(*(dims.begin())), mxDOUBLE_CLASS, mxREAL);
         double *BiP_data = mxGetPr(BiP);
-        for( size_t j = 0; j < I->states(); j++ )
+        for( size_t j = 0; j < I->nrStates(); j++ )
             BiP_data[j] = (*I)[j];
 
         mxSetField(Bi,0,"Member",BiMember);
@@ -119,7 +119,7 @@ vector<Factor> mx2Factors(const mxArray *psi, long verbose) {
         }
         Permute permindex( di, perm );
         for( size_t li = 0; li < prod; li++ )
-            factors.back()[permindex.convertLinearIndex(li)] = factordata[li];
+            factors.back().set( permindex.convertLinearIndex(li), factordata[li] );
     }
 
     if( verbose >= 3 ) {
@@ -166,7 +166,7 @@ Factor mx2Factor(const mxArray *psi) {
     }
     Permute permindex( di, perm );
     for( size_t li = 0; li < prod; li++ )
-        factor[permindex.convertLinearIndex(li)] = factordata[li];
+        factor.set( permindex.convertLinearIndex(li), factordata[li] );
 
     return( factor );
 }

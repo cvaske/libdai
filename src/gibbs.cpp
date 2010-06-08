@@ -5,6 +5,7 @@
  *  warranty. See the file COPYING for more details.
  *
  *  Copyright (C) 2008  Frederik Eaton  [frederik at ofb dot net]
+ *  Copyright (C) 2008-2010  Joris Mooij  [joris dot mooij at libdai dot org]
  */
 
 
@@ -45,9 +46,9 @@ void Gibbs::setProperties( const PropertySet &opts ) {
 
 PropertySet Gibbs::getProperties() const {
     PropertySet opts;
-    opts.Set( "iters", props.iters );
-    opts.Set( "burnin", props.burnin );
-    opts.Set( "verbose", props.verbose );
+    opts.set( "iters", props.iters );
+    opts.set( "burnin", props.burnin );
+    opts.set( "verbose", props.verbose );
     return opts;
 }
 
@@ -71,7 +72,7 @@ void Gibbs::construct() {
     _factor_counts.clear();
     _factor_counts.reserve( nrFactors() );
     for( size_t I = 0; I < nrFactors(); I++ )
-        _factor_counts.push_back( _count_t( factor(I).states(), 0 ) );
+        _factor_counts.push_back( _count_t( factor(I).nrStates(), 0 ) );
 
     _sample_count = 0;
 
@@ -130,7 +131,7 @@ Prob Gibbs::getVarDist( size_t i ) {
         size_t I_skip = getFactorEntryDiff( I, i );
         size_t I_entry = getFactorEntry(I) - (_state[i] * I_skip);
         for( size_t st_i = 0; st_i < i_states; st_i++ ) {
-            i_given_MB[st_i] *= f_I[I_entry];
+            i_given_MB.set( st_i, i_given_MB[st_i] * f_I[I_entry] );
             I_entry += I_skip;
         }
     }
@@ -162,6 +163,7 @@ void Gibbs::init() {
     for( size_t I = 0; I < nrFactors(); I++ )
         fill( _factor_counts[I].begin(), _factor_counts[I].end(), 0 );
     _sample_count = 0;
+    randomizeState();
 }
 
 
@@ -173,11 +175,9 @@ Real Gibbs::run() {
 
     double tic = toc();
 
-    randomizeState();
-
     for( size_t iter = 0; iter < props.iters; iter++ ) {
-        for( size_t j = 0; j < nrVars(); j++ )
-            resampleVar( j );
+        for( size_t i = 0; i < nrVars(); i++ )
+            resampleVar( i );
         updateCounts();
     }
 
@@ -191,22 +191,26 @@ Real Gibbs::run() {
     if( props.verbose >= 3 )
         cerr << Name << "::run:  ran " << props.iters << " passes (" << toc() - tic << " clocks)." << endl;
 
-    return 0.0;
+    if( _sample_count == 0 )
+        return INFINITY;
+    else
+        return 1.0 / _sample_count;
 }
 
 
 Factor Gibbs::beliefV( size_t i ) const {
-    return Factor( var(i), _var_counts[i] ).normalized();
+    if( _sample_count <= props.burnin  )
+        return Factor( var(i) );
+    else
+        return Factor( var(i), _var_counts[i] ).normalized();
 }
 
 
 Factor Gibbs::beliefF( size_t I ) const {
-    return Factor( factor(I).vars(), _factor_counts[I] ).normalized();
-}
-
-
-Factor Gibbs::belief( const Var &n ) const {
-    return( beliefV( findVar( n ) ) );
+    if( _sample_count <= props.burnin  )
+        return Factor( factor(I).vars() );
+    else
+        return Factor( factor(I).vars(), _factor_counts[I] ).normalized();
 }
 
 
@@ -221,24 +225,27 @@ vector<Factor> Gibbs::beliefs() const {
 
 
 Factor Gibbs::belief( const VarSet &ns ) const {
-    if( ns.size() == 1 )
-        return belief( *(ns.begin()) );
+    if( ns.size() == 0 )
+        return Factor();
+    else if( ns.size() == 1 )
+        return beliefV( findVar( *(ns.begin()) ) );
     else {
         size_t I;
         for( I = 0; I < nrFactors(); I++ )
             if( factor(I).vars() >> ns )
                 break;
-        DAI_ASSERT( I != nrFactors() );
+        if( I == nrFactors() )
+            DAI_THROW(BELIEF_NOT_AVAILABLE);
         return beliefF(I).marginal(ns);
     }
 }
 
 
-std::vector<size_t> getGibbsState( const FactorGraph &fg, size_t iters, size_t burnin ) {
+std::vector<size_t> getGibbsState( const FactorGraph &fg, size_t iters ) {
     PropertySet gibbsProps;
-    gibbsProps.Set("iters", iters);
-    gibbsProps.Set("burnin", burnin);
-    gibbsProps.Set("verbose", size_t(0));
+    gibbsProps.set("iters", iters);
+    gibbsProps.set("burnin", size_t(0));
+    gibbsProps.set("verbose", size_t(0));
     Gibbs gibbs( fg, gibbsProps );
     gibbs.run();
     return gibbs.state();

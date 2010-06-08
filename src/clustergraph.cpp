@@ -4,7 +4,7 @@
  *  2, or (at your option) any later version. libDAI is distributed without any
  *  warranty. See the file COPYING for more details.
  *
- *  Copyright (C) 2006-2009  Joris Mooij  [joris dot mooij at libdai dot org]
+ *  Copyright (C) 2006-2010  Joris Mooij  [joris dot mooij at libdai dot org]
  *  Copyright (C) 2006-2007  Radboud University Nijmegen, The Netherlands
  */
 
@@ -22,87 +22,95 @@ namespace dai {
 using namespace std;
 
 
-ClusterGraph::ClusterGraph( const std::vector<VarSet> & cls ) : G(), vars(), clusters() {
+ClusterGraph::ClusterGraph( const std::vector<VarSet> & cls ) : _G(), _vars(), _clusters() {
     // construct vars, clusters and edge list
     vector<Edge> edges;
     foreach( const VarSet &cl, cls ) {
-        if( find( clusters.begin(), clusters.end(), cl ) == clusters.end() ) {
+        if( find( clusters().begin(), clusters().end(), cl ) == clusters().end() ) {
             // add cluster
-            size_t n2 = clusters.size();
-            clusters.push_back( cl );
+            size_t n2 = nrClusters();
+            _clusters.push_back( cl );
             for( VarSet::const_iterator n = cl.begin(); n != cl.end(); n++ ) {
-                size_t n1 = find( vars.begin(), vars.end(), *n ) - vars.begin();
-                if( n1 == vars.size() )
+                size_t n1 = find( vars().begin(), vars().end(), *n ) - vars().begin();
+                if( n1 == nrVars() )
                     // add variable
-                    vars.push_back( *n );
+                    _vars.push_back( *n );
                 edges.push_back( Edge( n1, n2 ) );
             }
         } // disregard duplicate clusters
     }
 
     // Create bipartite graph
-    G.construct( vars.size(), clusters.size(), edges.begin(), edges.end() );
+    _G.construct( nrVars(), nrClusters(), edges.begin(), edges.end() );
 }
 
 
-ClusterGraph ClusterGraph::VarElim_MinFill() const {
-    // Make a copy
-    ClusterGraph cl(*this);
-    cl.eraseNonMaximal();
+size_t sequentialVariableElimination::operator()( const ClusterGraph &cl, const std::set<size_t> &/*remainingVars*/ ) {
+    return cl.findVar( seq.at(i++) );
+}
 
-    ClusterGraph result;
 
-    // Construct set of variable indices
-    set<size_t> varindices;
-    for( size_t i = 0; i < vars.size(); ++i )
-        varindices.insert( i );
-
-    // Do variable elimination
-    while( !varindices.empty() ) {
-        set<size_t>::const_iterator lowest = varindices.end();
-        size_t lowest_cost = -1UL;
-        for( set<size_t>::const_iterator i = varindices.begin(); i != varindices.end(); i++ ) {
-            size_t cost = cl.eliminationCost( *i );
-            if( lowest == varindices.end() || lowest_cost > cost ) {
-                lowest = i;
-                lowest_cost = cost;
-            }
+size_t greedyVariableElimination::operator()( const ClusterGraph &cl, const std::set<size_t> &remainingVars ) {
+    set<size_t>::const_iterator lowest = remainingVars.end();
+    size_t lowest_cost = -1UL;
+    for( set<size_t>::const_iterator i = remainingVars.begin(); i != remainingVars.end(); i++ ) {
+        size_t cost = heuristic( cl, *i );
+        if( lowest == remainingVars.end() || lowest_cost > cost ) {
+            lowest = i;
+            lowest_cost = cost;
         }
-        size_t i = *lowest;
-
-        result.insert( cl.Delta( i ) );
-
-        cl.insert( cl.delta( i ) );
-        cl.eraseSubsuming( i );
-        cl.eraseNonMaximal();
-        varindices.erase( i );
     }
-
-    return result;
+    return *lowest;
 }
 
 
+size_t eliminationCost_MinNeighbors( const ClusterGraph &cl, size_t i ) {
+    return cl.bipGraph().delta1( i ).size();
+}
 
-ClusterGraph ClusterGraph::VarElim( const std::vector<Var> & ElimSeq ) const {
-    // Make a copy
-    ClusterGraph cl(*this);
-    cl.eraseNonMaximal();
 
-    ClusterGraph result;
+size_t eliminationCost_MinWeight( const ClusterGraph &cl, size_t i ) {
+    SmallSet<size_t> id_n = cl.bipGraph().delta1( i );
+    
+    size_t cost = 1;
+    for( SmallSet<size_t>::const_iterator it = id_n.begin(); it != id_n.end(); it++ )
+        cost *= cl.vars()[*it].states();
 
-    // Do variable elimination
-    for( vector<Var>::const_iterator n = ElimSeq.begin(); n != ElimSeq.end(); n++ ) {
-        size_t i = cl.findVar( *n );
-        DAI_ASSERT( i != cl.vars.size() );
+    return cost;
+}
 
-        result.insert( cl.Delta(i) );
 
-        cl.insert( cl.delta(i) );
-        cl.eraseSubsuming( i );
-        cl.eraseNonMaximal();
-    }
+size_t eliminationCost_MinFill( const ClusterGraph &cl, size_t i ) {
+    SmallSet<size_t> id_n = cl.bipGraph().delta1( i );
 
-    return result;
+    size_t cost = 0;
+    // for each unordered pair {i1,i2} adjacent to n
+    for( SmallSet<size_t>::const_iterator it1 = id_n.begin(); it1 != id_n.end(); it1++ )
+        for( SmallSet<size_t>::const_iterator it2 = it1; it2 != id_n.end(); it2++ )
+            if( it1 != it2 ) {
+                // if i1 and i2 are not adjacent, eliminating n would make them adjacent
+                if( !cl.adj(*it1, *it2) )
+                    cost++;
+            }
+
+    return cost;
+}
+
+
+size_t eliminationCost_WeightedMinFill( const ClusterGraph &cl, size_t i ) {
+    SmallSet<size_t> id_n = cl.bipGraph().delta1( i );
+
+    size_t cost = 0;
+    // for each unordered pair {i1,i2} adjacent to n
+    for( SmallSet<size_t>::const_iterator it1 = id_n.begin(); it1 != id_n.end(); it1++ )
+        for( SmallSet<size_t>::const_iterator it2 = it1; it2 != id_n.end(); it2++ )
+            if( it1 != it2 ) {
+                // if i1 and i2 are not adjacent, eliminating n would make them adjacent
+                if( !cl.adj(*it1, *it2) )
+                    cost += cl.vars()[*it1].states() * cl.vars()[*it2].states();
+            }
+
+    return cost;
 }
 
 

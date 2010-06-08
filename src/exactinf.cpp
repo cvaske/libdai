@@ -4,7 +4,7 @@
  *  2, or (at your option) any later version. libDAI is distributed without any
  *  warranty. See the file COPYING for more details.
  *
- *  Copyright (C) 2006-2009  Joris Mooij  [joris dot mooij at libdai dot org]
+ *  Copyright (C) 2006-2010  Joris Mooij  [joris dot mooij at libdai dot org]
  *  Copyright (C) 2006-2007  Radboud University Nijmegen, The Netherlands
  */
 
@@ -23,15 +23,16 @@ const char *ExactInf::Name = "EXACT";
 
 
 void ExactInf::setProperties( const PropertySet &opts ) {
-    DAI_ASSERT( opts.hasKey("verbose") );
-
-    props.verbose = opts.getStringAs<size_t>("verbose");
+    if( opts.hasKey("verbose") )
+        props.verbose = opts.getStringAs<size_t>("verbose");
+    else
+        props.verbose = 0;
 }
 
 
 PropertySet ExactInf::getProperties() const {
     PropertySet opts;
-    opts.Set( "verbose", props.verbose );
+    opts.set( "verbose", props.verbose );
     return opts;
 }
 
@@ -96,6 +97,25 @@ Factor ExactInf::calcMarginal( const VarSet &vs ) const {
     return P.marginal( vs, true );
 }
 
+        
+std::vector<std::size_t> ExactInf::findMaximum() const {
+    Factor P;
+    for( size_t I = 0; I < nrFactors(); I++ )
+        P *= factor(I);
+    size_t linearState = P.p().argmax().first;
+
+    // convert to state
+    map<Var, size_t> state = calcState( P.vars(), linearState );
+
+    // convert to desired output data structure
+    vector<size_t> mapState;
+    mapState.reserve( nrVars() );
+    for( size_t i = 0; i < nrVars(); i++ )
+        mapState.push_back( state[var(i)] );
+
+    return mapState;
+}
+
 
 vector<Factor> ExactInf::beliefs() const {
     vector<Factor> result = _beliefsV;
@@ -108,13 +128,14 @@ Factor ExactInf::belief( const VarSet &ns ) const {
     if( ns.size() == 0 )
         return Factor();
     else if( ns.size() == 1 ) {
-        return belief( *(ns.begin()) );
+        return beliefV( findVar( *(ns.begin()) ) );
     } else {
         size_t I;
         for( I = 0; I < nrFactors(); I++ )
             if( factor(I).vars() >> ns )
                 break;
-        DAI_ASSERT( I != nrFactors() );
+        if( I == nrFactors() )
+            DAI_THROW(BELIEF_NOT_AVAILABLE);
         return beliefF(I).marginal(ns);
     }
 }

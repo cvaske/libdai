@@ -58,7 +58,8 @@ class ExactInf : public DAIAlgFG {
         ExactInf() : DAIAlgFG(), props(), _beliefsV(), _beliefsF(), _logZ(0) {}
 
         /// Construct from FactorGraph \a fg and PropertySet \a opts
-        /** \param opts Parameters @see Properties
+        /** \param fg Factor graph.
+         *  \param opts Parameters @see Properties
          */
         ExactInf( const FactorGraph &fg, const PropertySet &opts ) : DAIAlgFG(fg), props(), _beliefsV(), _beliefsF(), _logZ() {
             setProperties( opts );
@@ -70,14 +71,14 @@ class ExactInf : public DAIAlgFG {
     //@{
         virtual ExactInf* clone() const { return new ExactInf(*this); }
         virtual std::string identify() const;
-        virtual Factor belief( const Var &n ) const { return beliefV( findVar( n ) ); }
-        virtual Factor belief( const VarSet &ns ) const;
+        virtual Factor belief( const Var &v ) const { return beliefV( findVar( v ) ); }
+        virtual Factor belief( const VarSet &vs ) const;
         virtual Factor beliefV( size_t i ) const { return _beliefsV[i]; }
         virtual Factor beliefF( size_t I ) const { return _beliefsF[I]; }
         virtual std::vector<Factor> beliefs() const;
         virtual Real logZ() const { return _logZ; }
         virtual void init();
-        virtual void init( const VarSet &/*ns*/ ) { DAI_THROW(NOT_IMPLEMENTED); }
+        virtual void init( const VarSet &/*ns*/ ) {}
         virtual Real run();
         virtual Real maxDiff() const { DAI_THROW(NOT_IMPLEMENTED); return 0.0; }
         virtual size_t Iterations() const { DAI_THROW(NOT_IMPLEMENTED); return 0; }
@@ -86,14 +87,18 @@ class ExactInf : public DAIAlgFG {
         virtual std::string printProperties() const;
     //@}
 
-    /// \name Additional interface specific for JTree
+    /// \name Additional interface specific for ExactInf
     //@{
         /// Calculates marginal probability distribution for variables \a vs
         /** \note The complexity of this calculation is exponential in the number of variables.
          */
         Factor calcMarginal( const VarSet &vs ) const;
-    //@}
 
+        /// Calculates the joint state of all variables that has maximum probability
+        /** \note The complexity of this calculation is exponential in the number of variables.
+         */
+        std::vector<std::size_t> findMaximum() const;
+    //@}
 
     private:
         /// Helper function for constructors

@@ -63,7 +63,8 @@ class Gibbs : public DAIAlgFG {
         Gibbs() : DAIAlgFG(), _sample_count(0), _var_counts(), _factor_counts(), _state() {}
 
         /// Construct from FactorGraph \a fg and PropertySet \a opts
-        /** \param opts Parameters @see Properties
+        /** \param fg Factor graph.
+         *  \param opts Parameters @see Properties
          */
         Gibbs( const FactorGraph &fg, const PropertySet &opts ) : DAIAlgFG(fg), _sample_count(0), _var_counts(), _factor_counts(), _state() {
             setProperties( opts );
@@ -75,8 +76,8 @@ class Gibbs : public DAIAlgFG {
     //@{
         virtual Gibbs* clone() const { return new Gibbs(*this); }
         virtual std::string identify() const { return std::string(Name) + printProperties(); }
-        virtual Factor belief( const Var &n ) const;
-        virtual Factor belief( const VarSet &ns ) const;
+        virtual Factor belief( const Var &v ) const { return beliefV( findVar( v ) ); }
+        virtual Factor belief( const VarSet &vs ) const;
         virtual Factor beliefV( size_t i ) const;
         virtual Factor beliefF( size_t I ) const;
         virtual std::vector<Factor> beliefs() const;
@@ -121,10 +122,15 @@ class Gibbs : public DAIAlgFG {
 /// Runs Gibbs sampling for \a iters iterations (of which \a burnin for burn-in) on FactorGraph \a fg, and returns the resulting state
 /** \relates Gibbs
  */
-std::vector<size_t> getGibbsState( const FactorGraph &fg, size_t iters, size_t burnin=0 );
+std::vector<size_t> getGibbsState( const FactorGraph &fg, size_t iters );
 
 
 } // end of namespace dai
+
+
+/** \example example_sprinkler_gibbs.cpp
+ *  This example shows how to use the Gibbs class.
+ */
 
 
 #endif

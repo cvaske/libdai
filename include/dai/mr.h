@@ -5,7 +5,7 @@
  *  warranty. See the file COPYING for more details.
  *
  *  Copyright (C) 2007       Bastian Wemmenhove
- *  Copyright (C) 2007-2009  Joris Mooij         [joris dot mooij at libdai dot org]
+ *  Copyright (C) 2007-2010  Joris Mooij  [joris dot mooij at libdai dot org]
  *  Copyright (C) 2007       Radboud University Nijmegen, The Netherlands
  */
 
@@ -25,6 +25,7 @@
 #include <dai/enum.h>
 #include <dai/properties.h>
 #include <dai/exceptions.h>
+#include <dai/graph.h>
 #include <boost/dynamic_bitset.hpp>
 
 
@@ -38,30 +39,32 @@ class MR : public DAIAlgFG {
     private:
         /// Is the underlying factor graph supported?
         bool supported;
-        /// con[i] = connectivity of spin \a i
-        std::vector<size_t>                             con;
-        /// nb[i] are the neighbours of spin \a i
-        std::vector<std::vector<size_t> >               nb;
-        /// tJ[i][_j] is the hyperbolic tangent of the interaction between spin \a i and its neighbour nb[i][_j]
+
+        /// The interaction graph (Markov graph)
+        GraphAL G;
+
+        /// Convenience shortcut
+        typedef GraphAL::Neighbor Neighbor;
+
+        /// tJ[i][_j] is the hyperbolic tangent of the interaction between spin \a i and its neighbour G.nb(i,_j)
         std::vector<std::vector<Real> >                 tJ;
         /// theta[i] is the local field on spin \a i
         std::vector<Real>                               theta;
+
         /// M[i][_j] is \f$ M^{(i)}_j \f$
         std::vector<std::vector<Real> >                 M;
-        /// The \a _j 'th neighbour of spin \a i has spin \a i as its kindex[i][_j]'th neighbour
-        std::vector<std::vector<size_t> >               kindex;
         /// Cavity correlations
         std::vector<std::vector<std::vector<Real> > >   cors;
-        /// Maximum connectivity
-        static const size_t kmax = 31;
+
         /// Type used for managing a subset of neighbors
         typedef boost::dynamic_bitset<> sub_nb;
-        /// Number of variables (spins)
-        size_t N;
+        
         /// Magnetizations
         std::vector<Real> Mag;
+        
         /// Maximum difference encountered so far
         Real _maxdiff;
+        
         /// Number of iterations needed
         size_t _iters;
 
@@ -101,10 +104,11 @@ class MR : public DAIAlgFG {
 
     public:
         /// Default constructor
-        MR() : DAIAlgFG(), supported(), con(), nb(), tJ(), theta(), M(), kindex(), cors(), N(), Mag(), _maxdiff(), _iters(), props() {}
+        MR() : DAIAlgFG(), supported(), G(), tJ(), theta(), M(), cors(), Mag(), _maxdiff(), _iters(), props() {}
 
         /// Construct from FactorGraph \a fg and PropertySet \a opts
-        /** \param opts Parameters @see Properties
+        /** \param fg Factor graph.
+         *  \param opts Parameters @see Properties
          *  \note This implementation only deals with binary variables and pairwise interactions.
          *  \throw NOT_IMPLEMENTED if \a fg has factors depending on three or more variables or has variables with more than two possible states.
          */
@@ -115,8 +119,9 @@ class MR : public DAIAlgFG {
     //@{
         virtual MR* clone() const { return new MR(*this); }
         virtual std::string identify() const;
-        virtual Factor belief( const Var &n ) const;
-        virtual Factor belief( const VarSet &/*ns*/ ) const { DAI_THROW(NOT_IMPLEMENTED); return Factor(); }
+        virtual Factor belief( const Var &v ) const { return beliefV( findVar( v ) ); }
+        virtual Factor belief( const VarSet &/*vs*/ ) const;
+        virtual Factor beliefV( size_t i ) const;
         virtual std::vector<Factor> beliefs() const;
         virtual Real logZ() const { DAI_THROW(NOT_IMPLEMENTED); return 0.0; }
         virtual void init() {}
@@ -130,26 +135,14 @@ class MR : public DAIAlgFG {
     //@}
 
     private:
-        /// Returns the signum of \a a
-        Real sign(Real a) { return (a >= 0) ? 1.0 : -1.0; }
-
-        /// Initialize N, con, nb, tJ, theta
-        void init(size_t Nin, Real *_w, Real *_th);
-        
-        /// Initialize kindex
-        void makekindex();
-        
         /// Initialize cors
-        void init_cor();
-        
-        /// Calculate cors using response propagation
-        Real init_cor_resp();
+        Real calcCavityCorrelations();
         
         /// Iterate update equations for cavity fields
-        void solvemcav();
+        void propagateCavityFields();
         
         /// Calculate magnetizations
-        void solveM();
+        void calcMagnetizations();
 
         /// Calculate the product of all tJ[i][_j] for _j in A
         /** \param i variable index

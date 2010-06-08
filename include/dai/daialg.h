@@ -79,11 +79,12 @@ class InfAlg {
         /// Returns the (approximate) marginal probability distribution of a variable.
         /** \note Before this method is called, run() should have been called.
          */
-        virtual Factor belief( const Var &v ) const = 0;
+        virtual Factor belief( const Var &v ) const { return belief( VarSet(v) ); }
 
         /// Returns the (approximate) marginal probability distribution of a set of variables.
         /** \note Before this method is called, run() should have been called.
-         *  \throw NOT_IMPLEMENTED if not implemented/supported
+         *  \throw NOT_IMPLEMENTED if not implemented/supported.
+         *  \throw BELIEF_NOT_AVAILABLE if the requested belief cannot be calculated with this algorithm.
          */
         virtual Factor belief( const VarSet &vs ) const = 0;
 
