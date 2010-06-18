@@ -94,7 +94,7 @@ void SharedParameters::setPermsAndVarSetsFromVarOrders() {
     if( _varorders.size() == 0 )
         return;
     DAI_ASSERT( _estimation != NULL );
-    _suffStats = new Prob(_estimation->probSize(), 0);
+    _expectations = new Prob(_estimation->probSize(), 0);
 
     // Construct the permutation objects and the varsets
     for( FactorOrientations::const_iterator foi = _varorders.begin(); foi != _varorders.end(); ++foi ) {
@@ -107,7 +107,7 @@ void SharedParameters::setPermsAndVarSetsFromVarOrders() {
 
 
 SharedParameters::SharedParameters( const FactorOrientations &varorders, ParameterEstimation *estimation, bool ownPE )
-  : _varsets(), _perms(), _varorders(varorders), _estimation(estimation), _ownEstimation(ownPE), _suffStats(NULL)
+  : _varsets(), _perms(), _varorders(varorders), _estimation(estimation), _ownEstimation(ownPE), _expectations(NULL)
 {
     // Calculate the necessary permutations and varsets
     setPermsAndVarSetsFromVarOrders();
@@ -115,7 +115,7 @@ SharedParameters::SharedParameters( const FactorOrientations &varorders, Paramet
 
 
 SharedParameters::SharedParameters( std::istream &is, const FactorGraph &fg )
-  : _varsets(), _perms(), _varorders(), _estimation(NULL), _ownEstimation(true), _suffStats(NULL)
+  : _varsets(), _perms(), _varorders(), _estimation(NULL), _ownEstimation(true), _expectations(NULL)
 {
     // Read the desired parameter estimation method from the stream
     std::string est_method;
@@ -172,7 +172,7 @@ SharedParameters::SharedParameters( std::istream &is, const FactorGraph &fg )
 }
 
 
-void SharedParameters::collectSufficientStatistics( InfAlg &alg ) {
+void SharedParameters::collectExpectations( InfAlg &alg ) {
     for( std::map< FactorIndex, Permute >::iterator i = _perms.begin(); i != _perms.end(); ++i ) {
         Permute &perm = i->second;
         VarSet &vs = _varsets[i->first];
@@ -181,13 +181,13 @@ void SharedParameters::collectSufficientStatistics( InfAlg &alg ) {
         Prob p( b.nrStates(), 0.0 );
         for( size_t entry = 0; entry < b.nrStates(); ++entry )
             p.set( entry, b[perm.convertLinearIndex(entry)] ); // apply inverse permutation
-        (*_suffStats) += p;
+        (*_expectations) += p;
     }
 }
 
 
 void SharedParameters::setParameters( FactorGraph &fg ) {
-    Prob p = _estimation->estimate(this->currentSufficientStatistics());
+    Prob p = _estimation->estimate(this->currentExpectations());
     for( std::map<FactorIndex, Permute>::iterator i = _perms.begin(); i != _perms.end(); ++i ) {
         Permute &perm = i->second;
         VarSet &vs = _varsets[i->first];
@@ -212,7 +212,7 @@ MaximizationStep::MaximizationStep( std::istream &is, const FactorGraph &fg_varl
 
 void MaximizationStep::addExpectations( InfAlg &alg ) {
     for( size_t i = 0; i < _params.size(); ++i )
-        _params[i].collectSufficientStatistics( alg );
+        _params[i].collectExpectations( alg );
 }
 
 

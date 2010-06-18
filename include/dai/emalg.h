@@ -76,7 +76,7 @@ class ParameterEstimation {
             (*_registry)[method] = f;
         }
 
-        /// Estimate the factor using the accumulated sufficient statistics and reset.
+        /// Estimate the factor using the provided expectations.
         virtual Prob estimate(const Prob &p) { return parametersToFactor(parameters(p)); }
 
         /// Convert a set of estimated parameters to a factor
@@ -189,8 +189,8 @@ class SharedParameters {
         ParameterEstimation *_estimation;
         /// Indicates whether \c *this gets ownership of _estimation
         bool _ownEstimation;
-        /// The current sufficient statistics
-        Prob* _suffStats;
+        /// The accumulated expectations
+        Prob* _expectations;
 
         /// Calculates the permutation that permutes the canonical ordering into the desired ordering
         /** \param varOrder Desired ordering of variables
@@ -217,11 +217,11 @@ class SharedParameters {
         SharedParameters( std::istream &is, const FactorGraph &fg );
 
         /// Copy constructor
-        SharedParameters( const SharedParameters &sp ) : _varsets(sp._varsets), _perms(sp._perms), _varorders(sp._varorders), _estimation(sp._estimation), _ownEstimation(sp._ownEstimation), _suffStats(NULL) {
+        SharedParameters( const SharedParameters &sp ) : _varsets(sp._varsets), _perms(sp._perms), _varorders(sp._varorders), _estimation(sp._estimation), _ownEstimation(sp._ownEstimation), _expectations(NULL) {
             // If sp owns its _estimation object, we should clone it instead of copying the pointer
             if( _ownEstimation )
                 _estimation = _estimation->clone();
-            _suffStats = new Prob(*sp._suffStats);
+            _expectations = new Prob(*sp._expectations);
         }
 
         /// Destructor
@@ -229,26 +229,24 @@ class SharedParameters {
             // If we own the _estimation object, we should delete it now
             if( _ownEstimation )
                 delete _estimation;
-            if( _suffStats != NULL) 
-                delete _suffStats;
+            if( _expectations != NULL) 
+                delete _expectations;
         }
 
-        /// Collect the sufficient statistics from expected values (beliefs) according to \a alg
+        /// Collect the expected values (beliefs) according to \a alg
         /** For each of the relevant factors (that shares the parameters we are interested in),
          *  the corresponding belief according to \a alg is obtained and its entries are permuted
          *  such that their ordering corresponds with the shared parameters that we are estimating.
-         *  Then, the parameter estimation subclass method addSufficientStatistics() is called with
-         *  this vector of expected values of the parameters as input.
          */
-        void collectSufficientStatistics( InfAlg &alg );
+        void collectExpectations( InfAlg &alg );
 
-        /// Return the current sufficient statistics
-        const Prob& currentSufficientStatistics() const { return *_suffStats; }
+        /// Return the current accumulated expectations
+        const Prob& currentExpectations() const { return *_expectations; }
 
         ParameterEstimation& getPEst() const { return *_estimation; }
 
         /// Estimate and set the shared parameters
-        /** Based on the sufficient statistics collected so far, the shared parameters are estimated
+        /** Based on the expectation statistics collected so far, the shared parameters are estimated
          *  using the parameter estimation subclass method estimate(). Then, each of the relevant
          *  factors in \a fg (that shares the parameters we are interested in) is set according 
          *  to those parameters (permuting the parameters accordingly).
@@ -257,13 +255,13 @@ class SharedParameters {
 
         /// Return a reference to the vector of factor orientations
         /** This is necessary for determing which variables were used
-         *  to estimate parameters, and analysis of sufficient statistics
+         *  to estimate parameters, and analysis of expectations
          *  after an Estimation step has been performed.
          */
         const FactorOrientations& getFactorOrientations() const { return _varorders; }
 
-        /// Reset the current sufficient statistics
-        void clear( ) { _suffStats->fill(0); }
+        /// Reset the current expectations
+        void clear( ) { _expectations->fill(0); }
 };
 
 
