@@ -49,9 +49,12 @@ ParameterEstimation* CondProbEstimation::factory( const PropertySet &p ) {
 }
 
 CondProbEstimation::CondProbEstimation( size_t target_dimension, const Prob &pseudocounts )
-  : _target_dim(target_dimension), _initial_stats(pseudocounts)
+  : _target_dim(target_dimension), _initial_stats(pseudocounts), _props()
 {
     DAI_ASSERT( !(_initial_stats.size() % _target_dim) );
+    _props.setAsString<size_t>("target_dim", _target_dim);
+    _props.setAsString<size_t>("total_dim", _initial_stats.size());
+    _props.setAsString<Real>("pseudo_count", _initial_stats.get(0));
 }
 
 

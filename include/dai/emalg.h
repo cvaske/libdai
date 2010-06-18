@@ -91,6 +91,7 @@ class ParameterEstimation {
         // Returns the name of the class of this parameter estimation
         virtual const std::string& name() const = 0;
 
+        virtual const PropertySet& properties() const = 0;
     private:
         /// A static registry containing all methods registered so far.
         static std::map<std::string, ParamEstFactory> *_registry;
@@ -111,6 +112,9 @@ class CondProbEstimation : private ParameterEstimation {
         Prob _initial_stats;
 
         static std::string _name; // = "CondProbEstimation";
+
+        /// PropertySet that allows reconstruction of this estimator
+        PropertySet _props;
 
     public:
         /// Constructor
@@ -151,6 +155,8 @@ class CondProbEstimation : private ParameterEstimation {
         virtual size_t probSize() const { return _initial_stats.size(); }
         
         virtual const std::string& name() const { return _name; }
+        
+        virtual const PropertySet& properties() const { return _props; }
 };
 
 
